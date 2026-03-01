@@ -295,6 +295,34 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
 .rule-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:4px}
 .rule-num{color:var(--dim2);min-width:24px;font-size:10px}
 
+/* ── STOCK SEARCH ───────────────────────── */
+.search-input-wrap{position:relative;margin-bottom:12px}
+.search-input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:14px;padding:12px 44px 12px 14px;outline:none;transition:border-color .15s}
+.search-input:focus{border-color:var(--green)}
+.search-input::placeholder{color:var(--dim)}
+.search-clear{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--dim2);font-size:16px;cursor:pointer;padding:4px;line-height:1;display:none}
+.search-clear.show{display:block}
+.search-hint{font-size:10px;color:var(--dim2);margin-bottom:12px;line-height:1.6}
+.search-hint strong{color:var(--amber)}
+.search-results{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.sr-item{display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s}
+.sr-item:hover,.sr-item.selected{border-color:var(--green);background:var(--green-dim)}
+.sr-ticker{font-size:14px;font-weight:700;color:#fff;min-width:70px}
+.sr-name{font-size:11px;color:var(--text);flex:1}
+.sr-sector{font-size:10px;color:var(--dim2)}
+.sr-market{font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.06em}
+.sr-market.us{background:rgba(96,165,250,.15);color:var(--us)}
+.sr-market.kr{background:rgba(251,113,133,.15);color:var(--kr)}
+.sr-loading{text-align:center;padding:24px;color:var(--dim2);font-size:12px}
+.sr-empty{text-align:center;padding:24px;color:var(--dim2);font-size:12px}
+.sr-price{font-size:12px;font-weight:600;color:var(--green);white-space:nowrap}
+.sr-chg{font-size:10px;margin-top:1px}
+.sr-chg.up{color:var(--green)}.sr-chg.dn{color:var(--red)}
+.mkt-toggle{display:flex;gap:6px;margin-bottom:14px}
+.mkt-tog-btn{flex:1;padding:7px;background:none;border:1px solid var(--border);border-radius:5px;font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;color:var(--dim2)}
+.mkt-tog-btn.active.us{border-color:var(--us);color:var(--us);background:rgba(96,165,250,.08)}
+.mkt-tog-btn.active.kr{border-color:var(--kr);color:var(--kr);background:rgba(251,113,133,.08)}
+
 /* ── SCROLLBAR ────────────────────────────── */
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
@@ -375,7 +403,10 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
         <span>💼 보유 종목 모니터링</span>
         <span>손절 <span style="color:var(--red)">-8%</span> · 수익1 <span class="sb-hi">+20%</span> · 수익2 <span class="sb-hi">+40%</span> · 트레일링 <span style="color:var(--amber)">-10%</span></span>
       </div>
-      <button class="btn-refresh" onclick="updatePortfolio()">↺ 업데이트</button>
+      <div style="display:flex;gap:7px">
+        <button class="btn-refresh" style="background:var(--green-dim);border-color:var(--green);color:var(--green)" onclick="openSearchModal()">＋ 종목 검색</button>
+        <button class="btn-refresh" onclick="updatePortfolio()">↺ 업데이트</button>
+      </div>
     </div>
     <div id="portfolio-content"></div>
   </section>
@@ -401,6 +432,54 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeModal()">취소</button>
       <button class="btn-ok" onclick="confirmBuy()">✓ 기록하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- STOCK SEARCH MODAL -->
+<div class="overlay" id="search-modal">
+  <div class="modal" style="width:520px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin-bottom:0">🔍 종목 검색</h3>
+      <button class="btn-cancel" style="padding:6px 12px;margin:0" onclick="closeSearchModal()">✕</button>
+    </div>
+
+    <!-- Market toggle -->
+    <div class="mkt-toggle">
+      <button class="mkt-tog-btn active us" id="stog-us" onclick="setSearchMarket('us')">🇺🇸 미장 (US)</button>
+      <button class="mkt-tog-btn kr" id="stog-kr" onclick="setSearchMarket('kr')">🇰🇷 국장 (KR)</button>
+    </div>
+
+    <!-- Search input -->
+    <div class="search-input-wrap">
+      <input type="text" class="search-input" id="stock-search-input"
+        placeholder="종목명 또는 티커 입력 (예: 삼성전자, AAPL)"
+        oninput="onSearchInput(this.value)"
+        autocomplete="off" autocorrect="off" spellcheck="false">
+      <button class="search-clear" id="search-clear-btn" onclick="clearSearch()">✕</button>
+    </div>
+
+    <div class="search-hint">
+      <strong>스캐너 목록 외 종목도 검색 가능합니다.</strong><br>
+      티커로 직접 입력하면 실시간 데이터를 불러옵니다 (예: 005930.KS, TSMC, 035420.KS)
+    </div>
+
+    <!-- Results -->
+    <div class="search-results" id="search-results">
+      <div class="sr-empty">위에서 종목명이나 티커를 입력하세요</div>
+    </div>
+
+    <!-- Direct ticker add -->
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--dim2);margin-bottom:7px;text-transform:uppercase;letter-spacing:.06em">티커 직접 입력 (실시간 조회)</div>
+      <div style="display:flex;gap:7px">
+        <input type="text" id="direct-ticker-input" class="search-input" style="font-size:12px;padding:9px 12px"
+          placeholder="예: 005930.KS / NVDA / 035420.KS"
+          autocomplete="off" autocorrect="off" spellcheck="false"
+          onkeydown="if(event.key==='Enter')directLookup()">
+        <button class="btn-ok" style="white-space:nowrap;padding:9px 16px;margin:0" onclick="directLookup()">조회</button>
+      </div>
+      <div id="direct-result" style="margin-top:8px;font-size:11px;color:var(--dim2)"></div>
     </div>
   </div>
 </div>
@@ -1623,6 +1702,8 @@ function confirmBuy() {
   const m  = buyMarket;
   const d  = screenerData[m][buyTicker] || {};
   const wl = WATCHLISTS[m].find(s => s.ticker === buyTicker) || {};
+  const overrideName = window._searchOverride?.name || null;
+  window._searchOverride = null;
   const newLot = { price, shares, date: Date.now() };
   const existing = portfolios[m].findIndex(h => h.ticker === buyTicker);
 
@@ -1634,7 +1715,7 @@ function confirmBuy() {
     const avg   = h.lots.reduce((s,l) => s+l.price*l.shares, 0) / totSh;
     h.totalShares = totSh; h.avgPrice = avg; h.peakPrice = null;
   } else {
-    portfolios[m].push({ ticker:buyTicker, name:d.name||wl.name||buyTicker,
+    portfolios[m].push({ ticker:buyTicker, name:overrideName||d.name||wl.name||buyTicker,
       lots:[newLot], avgPrice:price, totalShares:shares,
       purchasePrice:price, shares, addedAt:Date.now(), peakPrice:null, _mkt:m, liveData:null });
   }
@@ -1784,6 +1865,293 @@ function clearLog() {
 }
 
 // ═══════════════════════════════════════════════
+// STOCK SEARCH
+// ═══════════════════════════════════════════════
+let searchMarket   = 'us';
+let searchDebounce = null;
+let directLoading  = false;
+
+// Full combined search index: watchlist + common extras
+const SEARCH_INDEX = {
+  us: [
+    ...WATCHLISTS.us,
+    // Additional popular US stocks not in watchlist
+    {ticker:'UBER',  name:'Uber',            sector:'Tech'},
+    {ticker:'ABNB',  name:'Airbnb',          sector:'Travel'},
+    {ticker:'SHOP',  name:'Shopify',         sector:'E-commerce'},
+    {ticker:'SNAP',  name:'Snap',            sector:'Social'},
+    {ticker:'PINS',  name:'Pinterest',       sector:'Social'},
+    {ticker:'RBLX',  name:'Roblox',         sector:'Gaming'},
+    {ticker:'PLTR',  name:'Palantir',        sector:'AI/Data'},
+    {ticker:'AI',    name:'C3.ai',           sector:'AI'},
+    {ticker:'ARM',   name:'Arm Holdings',    sector:'Chip Design'},
+    {ticker:'SMCI',  name:'Super Micro',     sector:'Server'},
+    {ticker:'MU',    name:'Micron',          sector:'Memory'},
+    {ticker:'INTC',  name:'Intel',           sector:'Semiconductor'},
+    {ticker:'QCOM',  name:'Qualcomm',        sector:'Mobile Chip'},
+    {ticker:'TXN',   name:'Texas Instruments',sector:'Semiconductor'},
+    {ticker:'LRCX',  name:'Lam Research',    sector:'Semiconductor'},
+    {ticker:'KLAC',  name:'KLA Corp',        sector:'Semiconductor'},
+    {ticker:'ORCL',  name:'Oracle',          sector:'Cloud/DB'},
+    {ticker:'SAP',   name:'SAP SE',          sector:'Enterprise'},
+    {ticker:'IBM',   name:'IBM',             sector:'IT Services'},
+    {ticker:'CSCO',  name:'Cisco',           sector:'Networking'},
+    {ticker:'NFLX',  name:'Netflix',         sector:'Streaming'},
+    {ticker:'DIS',   name:'Disney',          sector:'Media'},
+    {ticker:'SPOT',  name:'Spotify',         sector:'Streaming'},
+    {ticker:'PYPL',  name:'PayPal',          sector:'Fintech'},
+    {ticker:'SQ',    name:'Block (Square)',  sector:'Fintech'},
+    {ticker:'COIN',  name:'Coinbase',        sector:'Crypto'},
+    {ticker:'MSTR',  name:'MicroStrategy',   sector:'Crypto'},
+    {ticker:'TSMC',  name:'TSMC',           sector:'Foundry'},
+    {ticker:'BABA',  name:'Alibaba',         sector:'China Tech'},
+    {ticker:'PDD',   name:'PDD/Temu',        sector:'China Tech'},
+    {ticker:'BIDU',  name:'Baidu',           sector:'China Tech'},
+    {ticker:'BA',    name:'Boeing',          sector:'Aerospace'},
+    {ticker:'RTX',   name:'Raytheon',        sector:'Defense'},
+    {ticker:'GE',    name:'GE Aerospace',    sector:'Industrial'},
+    {ticker:'F',     name:'Ford',            sector:'Auto'},
+    {ticker:'GM',    name:'General Motors',  sector:'Auto'},
+    {ticker:'RIVN',  name:'Rivian',          sector:'EV'},
+    {ticker:'LCID',  name:'Lucid',           sector:'EV'},
+    {ticker:'PFE',   name:'Pfizer',          sector:'Pharma'},
+    {ticker:'MRK',   name:'Merck',           sector:'Pharma'},
+    {ticker:'AMGN',  name:'Amgen',           sector:'Biotech'},
+    {ticker:'GILD',  name:'Gilead',          sector:'Biotech'},
+    {ticker:'WMT',   name:'Walmart',         sector:'Retail'},
+    {ticker:'TGT',   name:'Target',          sector:'Retail'},
+    {ticker:'AMZN',  name:'Amazon',          sector:'E-commerce'},
+    {ticker:'SPY',   name:'S&P 500 ETF',     sector:'ETF'},
+    {ticker:'QQQ',   name:'Nasdaq 100 ETF',  sector:'ETF'},
+    {ticker:'IWM',   name:'Russell 2000 ETF',sector:'ETF'},
+    {ticker:'GLD',   name:'Gold ETF',        sector:'ETF'},
+    {ticker:'TLT',   name:'20yr Bond ETF',   sector:'ETF'},
+    {ticker:'VIX',   name:'VIX Index',       sector:'Volatility'},
+    {ticker:'BRK-B', name:'Berkshire Hathaway',sector:'Conglomerate'},
+    {ticker:'T',     name:'AT&T',            sector:'Telecom'},
+    {ticker:'VZ',    name:'Verizon',         sector:'Telecom'},
+  ],
+  kr: [
+    ...WATCHLISTS.kr,
+    // Additional KR stocks
+    {ticker:'000020.KS', name:'동화약품',      sector:'제약'},
+    {ticker:'000080.KS', name:'하이트진로',    sector:'음료'},
+    {ticker:'000120.KS', name:'CJ대한통운',    sector:'물류'},
+    {ticker:'000150.KS', name:'두산',         sector:'지주'},
+    {ticker:'000240.KS', name:'한국타이어앤테크놀로지',sector:'자동차부품'},
+    {ticker:'000880.KS', name:'한화',         sector:'방산/화학'},
+    {ticker:'001040.KS', name:'CJ',          sector:'지주'},
+    {ticker:'001120.KS', name:'LX인터내셔널',  sector:'무역'},
+    {ticker:'001450.KS', name:'현대해상',      sector:'보험'},
+    {ticker:'002380.KS', name:'KCC',         sector:'건자재'},
+    {ticker:'003490.KS', name:'대한항공',      sector:'항공'},
+    {ticker:'003550.KS', name:'LG',          sector:'지주'},
+    {ticker:'003670.KS', name:'포스코퓨처엠',  sector:'배터리소재'},
+    {ticker:'004170.KS', name:'신세계',       sector:'유통'},
+    {ticker:'005070.KS', name:'코스모신소재',   sector:'배터리소재'},
+    {ticker:'005830.KS', name:'DB손해보험',    sector:'보험'},
+    {ticker:'006260.KS', name:'LS',          sector:'전선/지주'},
+    {ticker:'006360.KS', name:'GS건설',       sector:'건설'},
+    {ticker:'007070.KS', name:'GS리테일',     sector:'유통'},
+    {ticker:'008490.KS', name:'서흥',         sector:'제약'},
+    {ticker:'010060.KS', name:'OCI홀딩스',    sector:'태양광'},
+    {ticker:'010140.KS', name:'삼성중공업',    sector:'조선'},
+    {ticker:'010620.KS', name:'현대미포조선',   sector:'조선'},
+    {ticker:'011070.KS', name:'LG이노텍',     sector:'IT부품'},
+    {ticker:'011170.KS', name:'롯데케미칼',    sector:'화학'},
+    {ticker:'011790.KS', name:'SKC',         sector:'배터리소재'},
+    {ticker:'012750.KS', name:'에스원',       sector:'보안서비스'},
+    {ticker:'014680.KS', name:'한솔케미칼',    sector:'화학'},
+    {ticker:'015760.KS', name:'한국전력',      sector:'전력'},
+    {ticker:'016360.KS', name:'삼성증권',      sector:'증권'},
+    {ticker:'017800.KS', name:'현대엘리베이터', sector:'산업기계'},
+    {ticker:'018880.KS', name:'한온시스템',    sector:'자동차부품'},
+    {ticker:'020150.KS', name:'일진하이솔루스', sector:'수소/에너지'},
+    {ticker:'021240.KS', name:'코웨이',       sector:'가전/렌탈'},
+    {ticker:'024110.KS', name:'기업은행',      sector:'은행'},
+    {ticker:'024720.KS', name:'콜마비앤에이치', sector:'바이오/화장품'},
+    {ticker:'025530.KS', name:'SBI인베스트먼트',sector:'투자'},
+    {ticker:'027410.KS', name:'BGF리테일',    sector:'편의점'},
+    {ticker:'028050.KS', name:'삼성엔지니어링', sector:'건설'},
+    {ticker:'029780.KS', name:'삼성카드',      sector:'금융'},
+    {ticker:'030000.KS', name:'제일기획',      sector:'광고'},
+    {ticker:'032640.KS', name:'LG유플러스',    sector:'통신'},
+    {ticker:'033530.KS', name:'세아홀딩스',    sector:'철강'},
+    {ticker:'036460.KS', name:'한국가스공사',   sector:'에너지'},
+    {ticker:'036570.KS', name:'엔씨소프트',    sector:'게임'},
+    {ticker:'036630.KS', name:'세키스이화학',   sector:'화학'},
+    {ticker:'039490.KS', name:'키움증권',      sector:'증권'},
+    {ticker:'040530.KS', name:'스튜디오드래곤', sector:'콘텐츠'},
+    {ticker:'042670.KS', name:'HD현대인프라코어',sector:'산업기계'},
+    {ticker:'051600.KS', name:'한전KPS',      sector:'발전/정비'},
+    {ticker:'053690.KQ', name:'한미사이언스',   sector:'제약'},
+    {ticker:'058470.KQ', name:'리노공업',      sector:'반도체부품'},
+    {ticker:'060800.KS', name:'DB하이텍',      sector:'반도체'},
+    {ticker:'064350.KQ', name:'현대로템',      sector:'방산/철도'},
+    {ticker:'067160.KQ', name:'아프리카TV',    sector:'미디어'},
+    {ticker:'078340.KS', name:'컴투스',        sector:'게임'},
+    {ticker:'085620.KS', name:'미래에셋생명',   sector:'보험'},
+    {ticker:'096770.KS', name:'SK이노베이션',  sector:'에너지/배터리'},
+    {ticker:'105560.KS', name:'KB금융',       sector:'금융'},
+    {ticker:'138040.KS', name:'메리츠금융지주', sector:'금융'},
+    {ticker:'139480.KS', name:'이마트',        sector:'유통'},
+    {ticker:'161390.KS', name:'한국타이어앤테크놀로지',sector:'자동차부품'},
+    {ticker:'180640.KS', name:'한진칼',        sector:'항공지주'},
+    {ticker:'241560.KS', name:'두산밥캣',      sector:'산업기계'},
+    {ticker:'263750.KQ', name:'펄어비스',      sector:'게임'},
+    {ticker:'267270.KS', name:'HD현대건설기계', sector:'건설기계'},
+    {ticker:'271560.KS', name:'오리온',        sector:'식품'},
+    {ticker:'282330.KS', name:'BGF리테일',    sector:'편의점'},
+    {ticker:'298040.KS', name:'효성중공업',    sector:'전력기기'},
+    {ticker:'316140.KS', name:'우리금융지주',   sector:'금융'},
+    {ticker:'336260.KS', name:'두산퓨얼셀',    sector:'수소/연료전지'},
+    {ticker:'377300.KS', name:'카카오페이',    sector:'핀테크'},
+    {ticker:'402340.KS', name:'SK스퀘어',     sector:'IT지주'},
+    {ticker:'003230.KS', name:'삼양식품',      sector:'식품'},
+  ],
+};
+
+function openSearchModal() {
+  // Pre-select market matching current active market
+  searchMarket = activeMarket;
+  document.getElementById('stog-us').className = 'mkt-tog-btn' + (searchMarket==='us'?' active us':'');
+  document.getElementById('stog-kr').className = 'mkt-tog-btn' + (searchMarket==='kr'?' active kr':'');
+  document.getElementById('stock-search-input').value = '';
+  document.getElementById('direct-ticker-input').value = '';
+  document.getElementById('direct-result').textContent = '';
+  document.getElementById('search-clear-btn').className = 'search-clear';
+  document.getElementById('search-results').innerHTML = '<div class="sr-empty">위에서 종목명이나 티커를 입력하세요</div>';
+  document.getElementById('search-modal').classList.add('show');
+  setTimeout(() => document.getElementById('stock-search-input').focus(), 150);
+}
+
+function closeSearchModal() {
+  document.getElementById('search-modal').classList.remove('show');
+}
+
+function setSearchMarket(m) {
+  searchMarket = m;
+  document.getElementById('stog-us').className = 'mkt-tog-btn' + (m==='us'?' active us':'');
+  document.getElementById('stog-kr').className = 'mkt-tog-btn' + (m==='kr'?' active kr':'');
+  const val = document.getElementById('stock-search-input').value;
+  if (val) renderSearchResults(val);
+  else document.getElementById('search-results').innerHTML = '<div class="sr-empty">위에서 종목명이나 티커를 입력하세요</div>';
+}
+
+function onSearchInput(val) {
+  const clearBtn = document.getElementById('search-clear-btn');
+  clearBtn.className = 'search-clear' + (val ? ' show' : '');
+  clearTimeout(searchDebounce);
+  if (!val.trim()) {
+    document.getElementById('search-results').innerHTML = '<div class="sr-empty">위에서 종목명이나 티커를 입력하세요</div>';
+    return;
+  }
+  searchDebounce = setTimeout(() => renderSearchResults(val), 200);
+}
+
+function clearSearch() {
+  document.getElementById('stock-search-input').value = '';
+  document.getElementById('search-clear-btn').className = 'search-clear';
+  document.getElementById('search-results').innerHTML = '<div class="sr-empty">위에서 종목명이나 티커를 입력하세요</div>';
+  document.getElementById('stock-search-input').focus();
+}
+
+function renderSearchResults(query) {
+  const q     = query.trim().toLowerCase();
+  const index = SEARCH_INDEX[searchMarket] || [];
+  // Deduplicate by ticker
+  const seen = new Set();
+  const unique = index.filter(s => { if(seen.has(s.ticker)) return false; seen.add(s.ticker); return true; });
+
+  const results = unique.filter(s =>
+    s.ticker.toLowerCase().includes(q) ||
+    s.name.toLowerCase().includes(q) ||
+    (s.sector||'').toLowerCase().includes(q)
+  ).slice(0, 18);
+
+  const el = document.getElementById('search-results');
+  if (!results.length) {
+    el.innerHTML = `<div class="sr-empty">검색 결과 없음 — 아래 "티커 직접 입력"으로 조회하세요</div>`;
+    return;
+  }
+
+  el.innerHTML = results.map(s => {
+    const disp = searchMarket === 'kr' ? s.name : s.ticker;
+    const sub  = searchMarket === 'kr' ? s.ticker : s.name;
+    const d    = screenerData[searchMarket][s.ticker];
+    const priceHtml = d?.curr
+      ? `<div><div class="sr-price">${fmtShort(d.curr, searchMarket)}</div><div class="sr-chg ${d.change>=0?'up':'dn'}">${d.change>=0?'+':''}${d.change?.toFixed(2)}%</div></div>`
+      : '';
+    const inPf = portfolios[searchMarket].some(h => h.ticker === s.ticker);
+    return `<div class="sr-item ${inPf?'selected':''}" onclick="selectSearchResult('${s.ticker}','${s.name.replace(/'/g,"\'")}','${(s.sector||'').replace(/'/g,"\'")}')">
+      <div style="flex:1">
+        <div class="sr-ticker">${disp}</div>
+        <div class="sr-name">${sub}</div>
+        <div class="sr-sector">${s.sector||''}</div>
+      </div>
+      ${priceHtml}
+      <span class="sr-market ${searchMarket}">${searchMarket.toUpperCase()}</span>
+      ${inPf ? '<span style="font-size:10px;color:var(--green);margin-left:4px">✓보유</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function selectSearchResult(ticker, name, sector) {
+  closeSearchModal();
+  // Open the buy modal for this ticker with searchMarket
+  buyTicker  = ticker;
+  buyMarket  = searchMarket;
+  const d    = screenerData[searchMarket][ticker] || {};
+  const price = d.curr;
+  const existing = portfolios[searchMarket].find(h => h.ticker === ticker);
+  const dispTicker = ticker.replace(/\.(KS|KQ)$/,'');
+
+  document.getElementById('modal-title').textContent = existing ? '추가 매수 기록 📝' : '매수 기록 📝';
+  document.getElementById('price-label').textContent = priceLbl(searchMarket);
+  document.getElementById('inp-price').placeholder = pricePlaceholder(searchMarket);
+  document.getElementById('inp-price').step = priceStep(searchMarket);
+  document.getElementById('inp-price').value = price ? (searchMarket === 'kr' ? Math.round(price) : price.toFixed(2)) : '';
+  document.getElementById('inp-shares').value = '';
+
+  const displayName = searchMarket === 'kr' ? name : dispTicker;
+  const displaySub  = searchMarket === 'kr' ? dispTicker : name;
+  let desc = `${displayName} (${displaySub})`;
+  if (price) desc += ` — 현재가: ${fmt(price, searchMarket)}`;
+  else desc += ' — 데이터 없음, 직접 입력하세요';
+  if (existing) desc += `
+
+현재 평균단가: ${fmt(existing.avgPrice, searchMarket)} · ${existing.totalShares}주 (${(existing.lots||[]).length}회 매수)`;
+  document.getElementById('modal-desc').textContent = desc;
+
+  // Override confirmBuy to use searchMarket name/sector if not in watchlist
+  window._searchOverride = { name, sector };
+  document.getElementById('buy-modal').classList.add('show');
+}
+
+async function directLookup() {
+  if (directLoading) return;
+  const raw    = document.getElementById('direct-ticker-input').value.trim();
+  if (!raw) return;
+  const ticker  = raw.toUpperCase();
+  const resultEl = document.getElementById('direct-result');
+  resultEl.innerHTML = '<span style="color:var(--amber)">⏳ 조회 중...</span>';
+  directLoading = true;
+  try {
+    const d = await fetchStockData(ticker);
+    // Determine market from ticker
+    const mkt = /\.(KS|KQ)$/.test(ticker) ? 'kr' : 'us';
+    const sig = getSignal(d);
+    screenerData[mkt][ticker] = { ...d, ...sig, name: ticker, sector: '기타' };
+    const dispName = ticker.replace(/\.(KS|KQ)$/,'');
+    resultEl.innerHTML = `<span style="color:var(--green)">✓ ${dispName} — 현재가: ${fmt(d.curr, mkt)} (${d.change>=0?'+':''}${d.change?.toFixed(2)}%)</span>
+      <button onclick="selectSearchResult('${ticker}','${ticker}','')" style="margin-left:10px;background:var(--green);border:none;border-radius:4px;color:var(--bg);font-family:var(--mono);font-size:10px;font-weight:700;padding:5px 12px;cursor:pointer;letter-spacing:.05em;text-transform:uppercase">매수 기록</button>`;
+  } catch(e) {
+    resultEl.innerHTML = `<span style="color:var(--red)">✗ 조회 실패: 티커를 확인하세요 (예: 005930.KS, AAPL)</span>`;
+  }
+  directLoading = false;
+}
+
+// ═══════════════════════════════════════════════
 // NAV
 // ═══════════════════════════════════════════════
 function switchMarket(m) {
@@ -1881,7 +2249,7 @@ window.addEventListener('load', () => {
 });
 
 // close modals on backdrop click
-['buy-modal','rules-modal'].forEach(id => {
+['buy-modal','rules-modal','search-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) {
       this.classList.remove('show');
