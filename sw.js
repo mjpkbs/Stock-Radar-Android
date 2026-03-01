@@ -1,7 +1,7 @@
-const CACHE = 'stockradar-v1';
+const CACHE = 'stockradar-v2';
 const ASSETS = [
-  '/stockradar/',
-  '/stockradar/index.html',
+  './',
+  './index.html',
   'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@700;800;900&display=swap'
 ];
 
@@ -45,8 +45,8 @@ self.addEventListener('push', e => {
   const data = e.data?.json() || { title: '주식레이더', body: '새로운 매매 신호' };
   self.registration.showNotification(data.title, {
     body: data.body,
-    icon: '/stockradar/icon-192.png',
-    badge: '/stockradar/icon-192.png',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
     vibrate: [200, 100, 200],
     tag: 'stockradar-signal',
     renotify: true,
