@@ -162,7 +162,7 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .score-track{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
 .score-fill{height:100%;border-radius:2px;transition:width .6s}
 
-.inds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px}
+.inds{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px}
 .ind{background:var(--bg3);border-radius:4px;padding:6px 8px}
 .ind-lbl{font-size:8px;color:var(--dim2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
 .ind-val{font-size:12px;font-weight:500;color:var(--text)}
@@ -1000,6 +1000,121 @@ async function fetchStockData(ticker) {
   const nearMA50 = sma50 && Math.abs((curr - sma50) / sma50) < 0.03;
   const nearMA   = nearMA20 || nearMA50;
 
+  // ── EMA HELPER ────────────────────────────────────────────────────────────
+  // Returns full array of EMA values starting from index (n-1)
+  const emaArray = (n, prices) => {
+    if (prices.length < n) return [];
+    const k = 2 / (n + 1);
+    let e = prices.slice(0, n).reduce((a, b) => a + b, 0) / n;
+    const out = [e];
+    for (let i = n; i < prices.length; i++) {
+      e = prices[i] * k + e * (1 - k);
+      out.push(e);
+    }
+    return out;
+  };
+
+  // ── MACD (12, 26, 9) ─────────────────────────────────────────────────────
+  const macd = (() => {
+    if (closes.length < 36) return null;
+    const e12 = emaArray(12, closes);  // starts at index 11
+    const e26 = emaArray(26, closes);  // starts at index 25
+    // Align: e26[i] corresponds to e12[i + 14]
+    const macdLine = e26.map((v, i) => e12[i + 14] - v);
+    if (macdLine.length < 10) return null;
+    const signalLine = emaArray(9, macdLine);
+    const lastM  = macdLine.at(-1);
+    const prevM  = macdLine.at(-2);
+    const lastS  = signalLine.at(-1);
+    const prevS  = signalLine.length >= 2 ? signalLine.at(-2) : null;
+    const histogram  = lastM - lastS;
+    const prevHist   = (prevM != null && prevS != null) ? prevM - prevS : null;
+    const bullCross  = prevS != null && prevM < prevS && lastM > lastS;
+    const bearCross  = prevS != null && prevM > prevS && lastM < lastS;
+    const aboveZero  = lastM > 0;
+    const histRising = prevHist != null && histogram > prevHist;
+    // Divergence: price making higher high but MACD making lower high → bearish
+    // Use simple 5d comparison
+    const recentPriceUp = closes.at(-1) > closes.at(-6);
+    const recentMacdUp  = macdLine.at(-1) > macdLine.at(-6);
+    const bearDiv = recentPriceUp && !recentMacdUp && lastM < 0.5;  // bearish divergence
+    const bullDiv = !recentPriceUp && recentMacdUp && lastM > -0.5; // bullish divergence
+    return { value: lastM, signal: lastS, histogram, bullCross, bearCross,
+             aboveZero, histRising, bearDiv, bullDiv };
+  })();
+
+  // ── BOLLINGER BANDS (20, 2σ) ──────────────────────────────────────────────
+  const bBands = (() => {
+    if (closes.length < 20) return null;
+    const slice = closes.slice(-20);
+    const mean  = slice.reduce((a, b) => a + b, 0) / 20;
+    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / 20;
+    const std   = Math.sqrt(variance);
+    const upper = mean + 2 * std;
+    const lower = mean - 2 * std;
+    const pctB  = std > 0 ? (curr - lower) / (upper - lower) : 0.5;
+    const bandwidth = std > 0 ? (upper - lower) / mean : 0;
+    // Historical bandwidth comparison for squeeze detection (last 50d)
+    let squeeze = false;
+    if (closes.length >= 50) {
+      const bwHistory = [];
+      for (let i = 30; i <= closes.length; i++) {
+        const sl = closes.slice(i - 20, i);
+        const m  = sl.reduce((a,b)=>a+b,0)/20;
+        const v  = sl.reduce((s,x)=>s+(x-m)**2,0)/20;
+        bwHistory.push(Math.sqrt(v)*2/m);
+      }
+      const avgBw = bwHistory.reduce((a,b)=>a+b,0)/bwHistory.length;
+      squeeze = bandwidth < avgBw * 0.6;  // current width < 60% of historical avg
+    } else {
+      squeeze = bandwidth < 0.08;
+    }
+    return { upper, lower, mean, pctB, bandwidth, squeeze };
+  })();
+
+  // ── ATR-14 (Average True Range) ──────────────────────────────────────────
+  const atr = (() => {
+    const needed = 15;
+    if (closes.length < needed || highs.length < needed || lows.length < needed) return null;
+    const trs = [];
+    for (let i = closes.length - 14; i < closes.length; i++) {
+      const hl  = highs[i] - lows[i];
+      const hpc = Math.abs(highs[i] - closes[i - 1]);
+      const lpc = Math.abs(lows[i]  - closes[i - 1]);
+      trs.push(Math.max(hl, hpc, lpc));
+    }
+    const atrVal = trs.reduce((a, b) => a + b, 0) / 14;
+    const atrPct = curr > 0 ? atrVal / curr : 0;
+    // Suggest stop: 2× ATR below current price
+    const stopSuggest = curr - 2 * atrVal;
+    const stopPct     = -2 * atrPct;
+    return { atrVal, atrPct, stopSuggest, stopPct };
+  })();
+
+  // ── OBV (On-Balance Volume) ───────────────────────────────────────────────
+  const obv = (() => {
+    const len = Math.min(closes.length, volumes.length, 60);
+    if (len < 21) return null;
+    const cls = closes.slice(-len);
+    const vls = volumes.slice(-len);
+    const obvArr = [vls[0]];
+    for (let i = 1; i < len; i++) {
+      const prev = obvArr[i - 1];
+      if (cls[i] > cls[i - 1])      obvArr.push(prev + vls[i]);
+      else if (cls[i] < cls[i - 1]) obvArr.push(prev - vls[i]);
+      else                           obvArr.push(prev);
+    }
+    const obvSma5  = obvArr.slice(-5).reduce((a,b)=>a+b,0) / 5;
+    const obvSma20 = obvArr.slice(-20).reduce((a,b)=>a+b,0) / 20;
+    const trend      = obvSma5 > obvSma20 ? 'up' : 'down';
+    const priceTrend = cls.at(-1) > cls.at(-20) ? 'up' : 'down';
+    // Bearish divergence: price up but OBV down → selling into strength
+    const bearDiv = priceTrend === 'up'   && trend === 'down';
+    // Bullish divergence: price down but OBV up → accumulation
+    const bullDiv = priceTrend === 'down' && trend === 'up';
+    return { trend, priceTrend, bearDiv, bullDiv };
+  })();
+
   const chartPatterns  = detectPatterns(closes, highs, lows, volumes);
   const candlePatterns = detectCandlePatterns(opens, highs, lows, closes, volumes);
   // Merge: chart patterns first, then candle patterns; dedupe by name
@@ -1010,6 +1125,7 @@ async function fetchStockData(ticker) {
   return { ticker, curr, prev, change, sma20, sma50, sma200,
            rsi, volRatio, priceRunPct, aboveMA50pct,
            goldenCross, nearGolden, deathCross, aboveMA200, aboveMA50, nearMA,
+           macd, bBands, atr, obv,
            closes, highs, lows, opens, patterns };
 }
 
@@ -1644,6 +1760,68 @@ function getSignal(d) {
     }
   } else { vol = 10; }
 
+  // ── OBV 거래량 흐름 보정 ────────────────────────────────────────────────
+  if (d.obv) {
+    if (d.obv.bearDiv) {
+      vol = Math.max(0, vol - 5);
+      reasons.push({ text: 'OBV 약세 다이버전스 ✗', t: 'w' });
+    } else if (d.obv.bullDiv) {
+      vol = Math.min(20, vol + 4);
+      reasons.push({ text: 'OBV 강세 다이버전스 ✓', t: 'g' });
+    } else if (d.obv.trend === 'up' && d.obv.priceTrend === 'up') {
+      vol = Math.min(20, vol + 2);
+    }
+  }
+
+  // ── MACD 모멘텀 보너스 (±10) ─────────────────────────────────────────────
+  let macdBonus = 0;
+  if (d.macd) {
+    if (d.macd.bullCross) {
+      macdBonus += 8;
+      reasons.push({ text: 'MACD 골든크로스 ✓', t: 'g' });
+    } else if (d.macd.bearCross) {
+      macdBonus -= 8;
+      reasons.push({ text: 'MACD 데드크로스 ✗', t: 'w' });
+    } else if (d.macd.aboveZero && d.macd.histRising) {
+      macdBonus += 4;
+      reasons.push({ text: 'MACD 상승 모멘텀 ✓', t: 'g' });
+    } else if (!d.macd.aboveZero && !d.macd.histRising) {
+      macdBonus -= 3;
+      reasons.push({ text: 'MACD 음수권 약세', t: 'w' });
+    }
+    if (d.macd.bearDiv) {
+      macdBonus -= 5;
+      reasons.push({ text: 'MACD 베어리시 다이버전스 ✗', t: 'w' });
+    } else if (d.macd.bullDiv) {
+      macdBonus += 5;
+      reasons.push({ text: 'MACD 불리시 다이버전스 ✓', t: 'g' });
+    }
+    macdBonus = Math.max(-10, Math.min(10, macdBonus));
+  }
+
+  // ── 볼린저 밴드 보너스 (±8) ──────────────────────────────────────────────
+  let bbBonus = 0;
+  if (d.bBands) {
+    if (d.bBands.squeeze) {
+      bbBonus += 4;
+      reasons.push({ text: 'BB 스퀴즈 — 돌파 임박 ✓', t: 'g' });
+    }
+    if (d.bBands.pctB < 0.05) {
+      bbBonus += 5;
+      reasons.push({ text: 'BB 하단 이탈 — 극단적 과매도', t: 'g' });
+    } else if (d.bBands.pctB < 0.15) {
+      bbBonus += 3;
+      reasons.push({ text: 'BB 하단 근접 — 반등 기대', t: 'g' });
+    } else if (d.bBands.pctB > 0.95) {
+      bbBonus -= 5;
+      reasons.push({ text: 'BB 상단 돌파 — 과매수 경고 ✗', t: 'w' });
+    } else if (d.bBands.pctB > 0.85) {
+      bbBonus -= 3;
+      reasons.push({ text: 'BB 상단 근접 — 추격 위험', t: 'w' });
+    }
+    bbBonus = Math.max(-8, Math.min(8, bbBonus));
+  }
+
   // ── MARKET CONTEXT /15 (Rule 10) ──────────────────────
   // Proxy: if stock is above both MAs → bull context
   if (d.aboveMA200 && d.goldenCross) ctx = 15;
@@ -1666,7 +1844,7 @@ function getSignal(d) {
     });
   }
 
-  const total = trend + entry + vol + ctx + risk + patternBonus;
+  const total = trend + entry + vol + ctx + risk + patternBonus + macdBonus + bbBonus;
 
   // Gate: failing primary trend → cap at watch/sell
   let signal;
@@ -2089,6 +2267,9 @@ function buildCard(d, market) {
     d.goldenCross ? {lbl:'골든크로스', c:'pass'} : d.nearGolden ? {lbl:'골든크로스 임박',c:'warn'} : {lbl:'데드크로스', c:'fail'},
     d.nearMA ? {lbl:'눌림매수 ✓', c:'pass'} : {lbl:'눌림 미형성', c:'warn'},
     (d.priceRunPct??0) > RULES.fomoThreshold ? {lbl:'FOMO ✗', c:'fail'} : {lbl:'FOMO 안전', c:'pass'},
+    ...(d.macd ? [d.macd.bullCross ? {lbl:'MACD ↑골든', c:'pass'} : d.macd.bearCross ? {lbl:'MACD ↓데드', c:'fail'} : d.macd.aboveZero ? {lbl:'MACD 양수', c:'pass'} : {lbl:'MACD 음수', c:'fail'}] : []),
+    ...(d.bBands ? [d.bBands.squeeze ? {lbl:'BB 스퀴즈', c:'warn'} : d.bBands.pctB < 0.2 ? {lbl:'BB 하단', c:'pass'} : d.bBands.pctB > 0.8 ? {lbl:'BB 상단', c:'fail'} : {lbl:'BB 중단', c:'warn'}] : []),
+    ...(d.obv ? [d.obv.bearDiv ? {lbl:'OBV 약세', c:'fail'} : d.obv.bullDiv ? {lbl:'OBV 강세', c:'pass'} : d.obv.trend === 'up' ? {lbl:'OBV 상승', c:'pass'} : {lbl:'OBV 하락', c:'fail'}] : []),
   ];
 
   const topReasons = (d.reasons||[]).filter(r => !(d.patterns||[]).some(p=>r.text.includes(p.name))).slice(0,2).map(r => `<span class="${r.t}">${r.text}</span>`).join(' · ');
@@ -2124,10 +2305,10 @@ function buildCard(d, market) {
     <div class="score-bar-wrap">
       <div class="score-row">
         <span class="score-label">종합점수 (70↑ = BUY)</span>
-        <span class="score-num ${scoreCol}">${score}/100</span>
+        <span class="score-num ${scoreCol}">${score}/100+</span>
       </div>
       <div class="score-track">
-        <div class="score-fill" style="width:${scoreW}%;background:${scoreGrad}"></div>
+        <div class="score-fill" style="width:${Math.min(100,scoreW)}%;background:${scoreGrad}"></div>
       </div>
     </div>
 
@@ -2145,6 +2326,34 @@ function buildCard(d, market) {
         <div class="ind-lbl">200일선</div>
         <div class="ind-val ${sma200Cls}">${fmtShort(d.sma200 ? Math.round(d.sma200) : null, market)}</div>
       </div>
+      ${d.macd ? `
+      <div class="ind">
+        <div class="ind-lbl">MACD</div>
+        <div class="ind-val ${d.macd.bullCross ? 'g' : d.macd.bearCross ? 'r' : d.macd.aboveZero ? 'g' : 'r'}">
+          ${d.macd.bullCross ? '↑골든' : d.macd.bearCross ? '↓데드' : d.macd.aboveZero ? '양수권' : '음수권'}
+        </div>
+        <div style="font-size:8px;color:var(--dim2);margin-top:1px">
+          ${d.macd.histRising ? '▲모멘텀↑' : '▼모멘텀↓'}${d.macd.bearDiv ? ' · 베어다이브' : d.macd.bullDiv ? ' · 불다이브' : ''}
+        </div>
+      </div>` : ''}
+      ${d.bBands ? `
+      <div class="ind">
+        <div class="ind-lbl">볼린저 %B</div>
+        <div class="ind-val ${d.bBands.pctB < 0.2 ? 'g' : d.bBands.pctB > 0.8 ? 'r' : ''}">
+          ${(d.bBands.pctB * 100).toFixed(0)}%
+        </div>
+        <div style="font-size:8px;color:var(--dim2);margin-top:1px">
+          ${d.bBands.squeeze ? '🔻스퀴즈' : d.bBands.pctB < 0.2 ? '하단접근' : d.bBands.pctB > 0.8 ? '상단접근' : '밴드중단'}
+        </div>
+      </div>` : ''}
+      ${d.atr ? `
+      <div class="ind">
+        <div class="ind-lbl">ATR 손절</div>
+        <div class="ind-val ${d.atr.atrPct > 0.04 ? 'r' : d.atr.atrPct > 0.02 ? 'a' : 'g'}">
+          ${(d.atr.atrPct * 100).toFixed(1)}%
+        </div>
+        <div style="font-size:8px;color:var(--dim2);margin-top:1px">2×ATR: ${(d.atr.stopPct*100).toFixed(1)}%</div>
+      </div>` : ''}
     </div>
 
     <div class="rule-chips">${ruleChips.map(c=>`<span class="rule-chip ${c.c}">${c.lbl}</span>`).join('')}</div>
