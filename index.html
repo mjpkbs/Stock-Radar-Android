@@ -329,6 +329,46 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 
+/* ── SOURCE SELECTOR ─────────────────────── */
+.source-bar{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.src-label{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.07em;margin-right:4px}
+.sbtn{padding:5px 12px;background:none;border:1px solid var(--border);border-radius:20px;color:var(--dim2);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.sbtn:hover{border-color:var(--border2);color:var(--text)}
+.sbtn.active{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+.sbtn.green.active{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+
+/* ── SCREENER MODAL ────────────────────────── */
+.sc-modal-inner{width:560px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.sc-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
+.sc-tab{padding:10px 16px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--dim2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.sc-tab:hover{color:var(--text)}
+.sc-tab.active{color:var(--green);border-bottom-color:var(--green)}
+.sc-body{flex:1;overflow-y:auto;padding-right:4px}
+.sc-section{margin-bottom:18px}
+.sc-section-title{font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;font-weight:600}
+.screener-option{display:flex;align-items:center;justify-content:space-between;padding:10px 13px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer;transition:all .15s;gap:12px}
+.screener-option:hover{border-color:var(--border2)}
+.screener-option.selected{border-color:var(--green);background:var(--green-dim)}
+.sc-opt-left{flex:1}
+.sc-opt-name{font-size:12px;font-weight:600;color:var(--text)}
+.sc-opt-desc{font-size:10px;color:var(--dim2);margin-top:2px;line-height:1.5}
+.sc-opt-badge{font-size:9px;padding:2px 7px;border-radius:10px;font-weight:700;white-space:nowrap}
+.sc-opt-badge.live{background:rgba(0,230,118,.15);color:var(--green)}
+.sc-opt-badge.static{background:rgba(122,143,170,.15);color:var(--dim2)}
+.custom-ticker-row{display:flex;gap:7px;margin-top:10px}
+.custom-ticker-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;min-height:28px}
+.custom-chip{display:flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;color:var(--text)}
+.custom-chip button{background:none;border:none;color:var(--dim2);cursor:pointer;font-size:13px;line-height:1;padding:0;transition:color .12s}
+.custom-chip button:hover{color:var(--red)}
+.sc-count-badge{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--blue-dim);color:var(--blue);margin-left:7px}
+
+/* ── STOCK SOURCE TAG ──────────────────────── */
+.src-tag{font-size:8px;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.05em;margin-left:5px;vertical-align:middle}
+.src-tag.screener{background:rgba(68,136,255,.15);color:var(--blue)}
+.src-tag.portfolio{background:rgba(0,230,118,.15);color:var(--green)}
+.src-tag.custom{background:rgba(255,171,0,.15);color:var(--amber)}
+.src-tag.static{background:rgba(122,143,170,.12);color:var(--dim2)}
+
 /* ── SKELETON ─────────────────────────────── */
 .skel{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg4) 50%,var(--bg3) 75%);background-size:200% 100%;animation:shimmer 1.6s infinite;border-radius:3px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
@@ -383,17 +423,21 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
         <span>마지막 스캔: <span class="sb-hi" id="last-scan">--</span></span>
         <span class="sb-warn" id="scan-status">초기화 중...</span>
       </div>
-      <button class="btn-refresh" id="refresh-btn" onclick="runScreener()">↺ 새로고침</button>
+      <div style="display:flex;gap:7px">
+        <button class="btn-refresh" style="border-color:var(--blue);color:var(--blue)" onclick="openScreenerModal()">⚙️ 종목 소스</button>
+        <button class="btn-refresh" id="refresh-btn" onclick="runScreener()">↺ 스캔</button>
+      </div>
     </div>
     <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    <div id="source-summary" style="margin-bottom:10px;font-size:10px;color:var(--dim2);display:none"></div>
     <div class="filter-bar">
       <button class="fbtn active" onclick="setFilter('all',this)">전체</button>
       <button class="fbtn" onclick="setFilter('strong-buy',this)">🔥 강력매수</button>
       <button class="fbtn" onclick="setFilter('buy',this)">✅ 매수</button>
       <button class="fbtn" onclick="setFilter('watch',this)">👀 관찰</button>
       <button class="fbtn" onclick="setFilter('sell',this)">⚠️ 매도경보</button>
-      <button class="fbtn" onclick="setFilter('pattern',this)">📐 패턴 감지</button>
-      <button class="fbtn" onclick="setFilter('candle',this)">🕯 캔들 패턴</button>
+      <button class="fbtn" onclick="setFilter('pattern',this)">📐 패턴</button>
+      <button class="fbtn" onclick="setFilter('candle',this)">🕯 캔들</button>
     </div>
     <div class="screener-grid" id="screener-grid"></div>
   </section>
@@ -482,6 +526,102 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
         <button class="btn-ok" style="white-space:nowrap;padding:9px 16px;margin:0" onclick="directLookup()">조회</button>
       </div>
       <div id="direct-result" style="margin-top:8px;font-size:11px;color:var(--dim2)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREENER SOURCE MODAL -->
+<div class="overlay" id="screener-modal">
+  <div class="modal sc-modal-inner">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-shrink:0">
+      <h3 style="margin:0">⚙️ 스캔 종목 소스 설정</h3>
+      <button class="btn-cancel" style="padding:6px 12px;margin:0" onclick="closeScreenerModal()">✕</button>
+    </div>
+    <div class="sc-tabs">
+      <div class="sc-tab active" id="sctab-source" onclick="switchScTab('source')">소스 선택</div>
+      <div class="sc-tab" id="sctab-custom" onclick="switchScTab('custom')">내 목록 관리 <span class="sc-count-badge" id="custom-count">0</span></div>
+    </div>
+    <div class="sc-body">
+      <!-- SOURCE TAB -->
+      <div id="sc-source-panel">
+        <div class="sc-section">
+          <div class="sc-section-title">🔴 실시간 야후 스크리너 (자동 발굴)</div>
+          <div class="screener-option" id="sco-gainers" onclick="toggleSource('gainers')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">🚀 급등주 TOP 25</div>
+              <div class="sc-opt-desc">당일 등락률 상위 종목 · 모멘텀 포착 · 매일 달라짐</div>
+            </div>
+            <span class="sc-opt-badge live">실시간</span>
+          </div>
+          <div class="screener-option" id="sco-volume" onclick="toggleSource('volume')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">📊 거래량 폭발 TOP 25</div>
+              <div class="sc-opt-desc">평균 대비 거래량 급증 종목 · 세력 유입 감지</div>
+            </div>
+            <span class="sc-opt-badge live">실시간</span>
+          </div>
+          <div class="screener-option" id="sco-growth" onclick="toggleSource('growth')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">📈 성장주 스크리너 TOP 25</div>
+              <div class="sc-opt-desc">고PEG·고성장 섹터 종목 · 모멘텀 + 실적 기반</div>
+            </div>
+            <span class="sc-opt-badge live">실시간</span>
+          </div>
+          <div class="screener-option" id="sco-52wk" onclick="toggleSource('52wk')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">🏆 52주 신고가 근접 TOP 25</div>
+              <div class="sc-opt-desc">52주 고가 대비 95% 이상 · 돌파 직전 종목</div>
+            </div>
+            <span class="sc-opt-badge live">실시간</span>
+          </div>
+        </div>
+        <div class="sc-section">
+          <div class="sc-section-title">📌 고정 목록</div>
+          <div class="screener-option selected" id="sco-watchlist" onclick="toggleSource('watchlist')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">📋 기본 관심 종목</div>
+              <div class="sc-opt-desc">앱 내장 미장 41종목 / 국장 38종목 (섹터 대표주)</div>
+            </div>
+            <span class="sc-opt-badge static">내장</span>
+          </div>
+          <div class="screener-option selected" id="sco-portfolio" onclick="toggleSource('portfolio')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">💼 내 포트폴리오 종목</div>
+              <div class="sc-opt-desc">보유 종목은 항상 스캔에 포함 (권장)</div>
+            </div>
+            <span class="sc-opt-badge static">자동</span>
+          </div>
+          <div class="screener-option" id="sco-custom" onclick="toggleSource('custom')">
+            <div class="sc-opt-left">
+              <div class="sc-opt-name">⭐ 내 커스텀 목록</div>
+              <div class="sc-opt-desc">"내 목록 관리" 탭에서 직접 추가한 종목</div>
+            </div>
+            <span class="sc-opt-badge static">수동</span>
+          </div>
+        </div>
+        <button class="btn-ok" style="width:100%;margin-top:4px" onclick="applyAndScan()">✓ 적용 후 스캔 시작</button>
+      </div>
+
+      <!-- CUSTOM LIST TAB -->
+      <div id="sc-custom-panel" style="display:none">
+        <div class="sc-section">
+          <div class="sc-section-title">내 커스텀 종목 목록</div>
+          <div class="custom-ticker-row">
+            <input type="text" id="custom-ticker-inp" class="search-input" style="font-size:12px;padding:9px 12px"
+              placeholder="티커 입력 (예: NVDA / 005930.KS)"
+              autocomplete="off" autocorrect="off" spellcheck="false"
+              onkeydown="if(event.key==='Enter')addCustomTicker()">
+            <button class="btn-ok" style="padding:9px 16px;margin:0;white-space:nowrap" onclick="addCustomTicker()">추가</button>
+          </div>
+          <div id="custom-ticker-error" style="font-size:10px;color:var(--red);margin-top:5px;display:none"></div>
+          <div class="custom-ticker-list" id="custom-ticker-list"></div>
+          <div style="font-size:10px;color:var(--dim2);margin-top:10px;line-height:1.7">
+            미장: AAPL, TSLA, NVDA …<br>
+            국장: 005930.KS, 000660.KS, 247540.KQ …<br>
+            최대 50개까지 추가 가능합니다.
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -667,6 +807,17 @@ let alarmSnd      = null;
 let notifOn       = false;
 let pollTimer     = null;
 let proxyIdx      = 0;
+
+// ── DYNAMIC SCAN SOURCE STATE ─────────────────────────────────────────────
+// Which sources are active (persisted)
+let scanSources = JSON.parse(localStorage.getItem('sr2_sources') || '{"gainers":false,"volume":false,"growth":false,"52wk":false,"watchlist":true,"portfolio":true,"custom":false}');
+// User's custom ticker list (per market)
+let customTickers = JSON.parse(localStorage.getItem('sr2_custom') || '{"us":[],"kr":[]}');
+// The live scan list built from sources (computed before each scan)
+let activeScanList = { us: [], kr: [] };
+// Cache of screener-fetched tickers (to avoid re-fetching same session)
+let screenerCache  = { us: {}, kr: {} };
+let scTabActive    = 'source';
 
 const PROXIES = [
   'https://corsproxy.io/?',
@@ -1547,33 +1698,138 @@ function priceLbl(market) {
 // ═══════════════════════════════════════════════
 // SCREENER
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// DYNAMIC SCAN LIST BUILDER
+// ═══════════════════════════════════════════════
+
+// Yahoo Finance screener query presets
+const YF_SCREENERS = {
+  us: {
+    gainers: 'day_gainers',
+    volume:  'most_actives',
+    growth:  'growth_technology_stocks',
+    '52wk':  'day_gainers',   // filter by nearHigh after fetch
+  },
+  kr: {
+    gainers: 'day_gainers',
+    volume:  'most_actives',
+    growth:  'growth_technology_stocks',
+    '52wk':  'day_gainers',
+  },
+};
+
+async function fetchYFScreener(market, screenerId) {
+  const region = market === 'kr' ? 'KR' : 'US';
+  const lang   = market === 'kr' ? 'ko-KR' : 'en-US';
+  const qid    = YF_SCREENERS[market][screenerId];
+  const url    = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&lang=${lang}&region=${region}&scrIds=${qid}&count=25&corsDomain=finance.yahoo.com`;
+  const data   = await fetchWithProxy(url);
+  const quotes = data?.finance?.result?.[0]?.quotes || [];
+  return quotes.map(q => ({
+    ticker: q.symbol,
+    name:   q.shortName || q.longName || q.symbol,
+    sector: q.sector || q.industry || '기타',
+    note:   (screenerId==='gainers'?'🚀 당일 급등':screenerId==='volume'?'📊 거래량 급증':'📈 성장주') + ' · ' + (q.regularMarketChangePercent?.toFixed(2)||'--') + '%',
+    _src:   screenerId,
+  }));
+}
+
+async function buildScanList(market) {
+  const list = new Map(); // ticker → stock info, deduped
+
+  // 1. Base watchlist
+  if (scanSources.watchlist) {
+    WATCHLISTS[market].forEach(s => list.set(s.ticker, { ...s, _src:'static' }));
+  }
+
+  // 2. Portfolio holdings (always recommended)
+  if (scanSources.portfolio) {
+    portfolios[market].forEach(h => {
+      if (!list.has(h.ticker))
+        list.set(h.ticker, { ticker:h.ticker, name:h.name, sector:h.sector||'보유중', note:'💼 포트폴리오', _src:'portfolio' });
+    });
+  }
+
+  // 3. Custom tickers
+  if (scanSources.custom) {
+    (customTickers[market] || []).forEach(t => {
+      if (!list.has(t.ticker))
+        list.set(t.ticker, { ...t, _src:'custom' });
+    });
+  }
+
+  // 4. Live screeners (gainers, volume, growth, 52wk)
+  const liveKeys = ['gainers','volume','growth','52wk'].filter(k => scanSources[k]);
+  for (const key of liveKeys) {
+    const statusEl = document.getElementById('scan-status');
+    if (statusEl) { statusEl.textContent = `${key} 스크리너 조회 중...`; statusEl.style.color='var(--amber)'; }
+    try {
+      const fetched = await fetchYFScreener(market, key);
+      fetched.forEach(s => {
+        if (!list.has(s.ticker)) list.set(s.ticker, s);
+      });
+    } catch(e) {
+      console.warn('Screener fetch failed:', key, e.message);
+    }
+    await sleep(300);
+  }
+
+  // Always ensure portfolio tickers are included regardless of source setting
+  portfolios[market].forEach(h => {
+    if (!list.has(h.ticker))
+      list.set(h.ticker, { ticker:h.ticker, name:h.name, sector:h.sector||'보유중', note:'💼 포트폴리오', _src:'portfolio' });
+  });
+
+  activeScanList[market] = Array.from(list.values());
+  return activeScanList[market];
+}
+
+function updateSourceSummary(market) {
+  const el = document.getElementById('source-summary');
+  if (!el) return;
+  const list = activeScanList[market];
+  if (!list || !list.length) { el.style.display='none'; return; }
+  const srcCounts = {};
+  list.forEach(s => { srcCounts[s._src||'static'] = (srcCounts[s._src||'static']||0)+1; });
+  const tags = Object.entries(srcCounts).map(([src, cnt]) => {
+    const label = {static:'기본목록',portfolio:'포트폴리오',custom:'커스텀',gainers:'급등주',volume:'거래량',growth:'성장주','52wk':'52주신고가'}[src]||src;
+    return `<span class="src-tag ${['gainers','volume','growth','52wk'].includes(src)?'screener':src}">${label} ${cnt}</span>`;
+  }).join(' ');
+  el.innerHTML = `스캔 소스: ${tags} — 총 ${list.length}개`;
+  el.style.display = 'block';
+}
+
 async function runScreener(silent = false) {
   const m   = activeMarket;
-  const wl  = WATCHLISTS[m];
   const pfx = document.getElementById('progress-fill');
   pfx.className = 'progress-fill ' + m;
 
   if (!silent) {
     document.getElementById('refresh-btn').disabled = true;
-    document.getElementById('scan-status').textContent = '스캔 중...';
+    document.getElementById('scan-status').textContent = '스캔 준비 중...';
     document.getElementById('scan-status').style.color = 'var(--amber)';
     document.getElementById('progress-bar').style.display = 'block';
     pfx.style.width = '0%';
   }
+
+  // Build dynamic scan list
+  const wl = await buildScanList(m);
+  renderScanSkeletons(m, wl);
+  updateSourceSummary(m);
 
   let done = 0, buyCnt = 0;
   for (const s of wl) {
     try {
       const raw = await fetchStockData(s.ticker);
       const sig = getSignal(raw);
-      screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name, sector:s.sector, note:s.note };
+      screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
       if (sig.signal === 'strong-buy' && notifOn) {
         addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
         addLog(m, { type:'buy', ticker:s.ticker, name:s.name, score:sig.score, reasons:sig.reasons, time:Date.now() });
       }
     } catch(e) {
-      screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name, sector:s.sector, note:s.note, error:e.message };
+      screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
     }
     done++;
     if (!silent) pfx.style.width = `${(done/wl.length)*100}%`;
@@ -1597,18 +1853,26 @@ async function runScreener(silent = false) {
 }
 
 function renderSkeletons() {
+  // Initial skeleton using WATCHLISTS before dynamic list is built
   const m  = activeMarket;
-  const wl = WATCHLISTS[m];
+  const wl = activeScanList[m].length ? activeScanList[m] : WATCHLISTS[m];
+  renderScanSkeletons(m, wl);
+}
+
+function renderScanSkeletons(m, wl) {
   document.getElementById('screener-grid').innerHTML = wl.map(s => `
     <div class="stock-card" id="card-${s.ticker.replace(/\./g,'_')}">
       <div class="card-top">
-        <div class="stock-id"><div class="ticker">${m === 'kr' ? s.name : s.ticker.replace(/\.(KS|KQ)$/,'')}</div><div class="sname">${m === 'kr' ? s.ticker.replace(/\.(KS|KQ)$/,'') : s.name}</div></div>
+        <div class="stock-id">
+          <div class="ticker">${m === 'kr' ? (s.name||s.ticker) : s.ticker.replace(/\.(KS|KQ)$/,'')}</div>
+          <div class="sname">${m === 'kr' ? s.ticker.replace(/\.(KS|KQ)$/,'') : (s.name||'')}</div>
+        </div>
         <div class="sig-badge sb-loading">LOADING</div>
       </div>
       <div class="skel" style="height:20px;margin-bottom:10px"></div>
       <div class="skel" style="height:30px;margin-bottom:10px"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px">
-        ${[0,1,2].map(()=>`<div class="skel" style="height:40px"></div>`).join('')}
+        ${[0,1,2].map(()=>'<div class="skel" style="height:40px"></div>').join('')}
       </div>
       <div class="skel" style="height:28px;margin-bottom:10px"></div>
       <div style="display:flex;gap:7px">
@@ -1630,12 +1894,17 @@ function updateSingleCard(market, ticker) {
 function finalRender(market) {
   const grid = document.getElementById('screener-grid');
   if (market !== activeMarket) return;
-  let items = WATCHLISTS[market].map(s => screenerData[market][s.ticker] || { ticker:s.ticker, name:s.name, sector:s.sector, note:s.note, error:'loading' });
+  const scanWl = activeScanList[market].length ? activeScanList[market] : WATCHLISTS[market];
+  let items = scanWl.map(s => screenerData[market][s.ticker] || { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:'loading' });
   const order = { 'strong-buy':0,'buy':1,'watch':2,'hold':3,'sell':4,'strong-sell':5 };
-  items.sort((a,b) => (order[a.signal]??6) - (order[b.signal]??6));
+  items.sort((a,b) => {
+    const od = (order[a.signal]??6) - (order[b.signal]??6);
+    if (od !== 0) return od;
+    return (b.score||0) - (a.score||0); // secondary: by score
+  });
   if (currentFilter !== 'all') {
     const f = currentFilter;
-    if (f === 'sell') items = items.filter(d => d.signal === 'sell' || d.signal === 'strong-sell');
+    if (f === 'sell')    items = items.filter(d => d.signal === 'sell' || d.signal === 'strong-sell');
     else if (f === 'pattern') items = items.filter(d => d.patterns && d.patterns.length > 0);
     else if (f === 'candle')  items = items.filter(d => d.patterns && d.patterns.some(p => p.candle));
     else items = items.filter(d => d.signal === f);
@@ -1710,6 +1979,9 @@ function buildCard(d, market) {
         <div class="sname">${market === 'kr' ? dispTicker : d.name}</div>
         <div class="ssector">${d.sector}</div>
         ${d.note ? `<div class="snote">ℹ ${d.note}</div>` : ''}
+        ${d._src && d._src !== 'static' ? `<span class="src-tag ${['gainers','volume','growth','52wk'].includes(d._src)?'screener':d._src}">
+          ${{portfolio:'💼 보유',custom:'⭐ 커스텀',gainers:'🚀 급등',volume:'📊 거래량',growth:'📈 성장주','52wk':'🏆 신고가'}[d._src]||d._src}
+        </span>` : ''}
       </div>
       <div class="sig-badge ${badgeCls}">${sigLbl}</div>
     </div>
@@ -2355,6 +2627,115 @@ async function directLookup() {
 }
 
 // ═══════════════════════════════════════════════
+// SCREENER SOURCE MODAL
+// ═══════════════════════════════════════════════
+function openScreenerModal() {
+  renderSourceOptions();
+  renderCustomList();
+  document.getElementById('custom-count').textContent = (customTickers[activeMarket]||[]).length;
+  document.getElementById('screener-modal').classList.add('show');
+}
+function closeScreenerModal() {
+  document.getElementById('screener-modal').classList.remove('show');
+}
+function switchScTab(tab) {
+  scTabActive = tab;
+  document.querySelectorAll('.sc-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sctab-'+tab).classList.add('active');
+  document.getElementById('sc-source-panel').style.display = tab==='source' ? '' : 'none';
+  document.getElementById('sc-custom-panel').style.display = tab==='custom' ? '' : 'none';
+}
+
+function renderSourceOptions() {
+  ['gainers','volume','growth','52wk','watchlist','portfolio','custom'].forEach(k => {
+    const el = document.getElementById('sco-'+k);
+    if (el) el.className = 'screener-option' + (scanSources[k] ? ' selected' : '');
+  });
+}
+
+function toggleSource(key) {
+  // portfolio is always on — just show a hint
+  if (key === 'portfolio') {
+    scanSources.portfolio = true;
+    saveScanSources();
+    return;
+  }
+  scanSources[key] = !scanSources[key];
+  saveScanSources();
+  renderSourceOptions();
+}
+
+function saveScanSources() {
+  localStorage.setItem('sr2_sources', JSON.stringify(scanSources));
+}
+
+function applyAndScan() {
+  closeScreenerModal();
+  runScreener();
+}
+
+// ── CUSTOM TICKER MANAGEMENT ─────────────────────────────────────────────────
+function renderCustomList() {
+  const m   = activeMarket;
+  const list = customTickers[m] || [];
+  const el  = document.getElementById('custom-ticker-list');
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<span style="font-size:10px;color:var(--dim2)">아직 추가한 종목이 없습니다</span>';
+    return;
+  }
+  el.innerHTML = list.map((t,i) => `
+    <div class="custom-chip">
+      <span>${activeMarket==='kr' ? (t.name||t.ticker) : t.ticker}</span>
+      <button onclick="removeCustomTicker(${i})" title="삭제">×</button>
+    </div>`).join('');
+  document.getElementById('custom-count').textContent = list.length;
+}
+
+async function addCustomTicker() {
+  const m   = activeMarket;
+  const raw = document.getElementById('custom-ticker-inp').value.trim().toUpperCase();
+  const errEl = document.getElementById('custom-ticker-error');
+  if (!raw) return;
+  if ((customTickers[m]||[]).length >= 50) {
+    errEl.textContent = '최대 50개까지 추가 가능합니다'; errEl.style.display='';
+    return;
+  }
+  if ((customTickers[m]||[]).some(t => t.ticker === raw)) {
+    errEl.textContent = '이미 추가된 종목입니다'; errEl.style.display='';
+    return;
+  }
+  errEl.style.display = 'none';
+  const btn = document.querySelector('#sc-custom-panel .btn-ok');
+  btn.textContent = '조회 중...'; btn.disabled = true;
+  try {
+    const d    = await fetchStockData(raw);
+    const wlItem = [...WATCHLISTS[m], ...(SEARCH_INDEX[m]||[])].find(s => s.ticker === raw);
+    const name = d.name || wlItem?.name || raw;
+    if (!customTickers[m]) customTickers[m] = [];
+    customTickers[m].push({ ticker:raw, name, sector:wlItem?.sector||'기타', _src:'custom' });
+    localStorage.setItem('sr2_custom', JSON.stringify(customTickers));
+    document.getElementById('custom-ticker-inp').value = '';
+    renderCustomList();
+    // auto-enable custom source
+    scanSources.custom = true;
+    saveScanSources();
+    renderSourceOptions();
+  } catch(e) {
+    errEl.textContent = `조회 실패: 티커를 확인하세요 (${e.message})`; errEl.style.display='';
+  }
+  btn.textContent = '추가'; btn.disabled = false;
+}
+
+function removeCustomTicker(idx) {
+  const m = activeMarket;
+  customTickers[m].splice(idx, 1);
+  localStorage.setItem('sr2_custom', JSON.stringify(customTickers));
+  renderCustomList();
+  document.getElementById('custom-count').textContent = customTickers[m].length;
+}
+
+// ═══════════════════════════════════════════════
 // NAV
 // ═══════════════════════════════════════════════
 function switchMarket(m) {
@@ -2452,7 +2833,7 @@ window.addEventListener('load', () => {
 });
 
 // close modals on backdrop click
-['buy-modal','rules-modal','search-modal'].forEach(id => {
+['buy-modal','rules-modal','search-modal','screener-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) {
       this.classList.remove('show');
