@@ -179,6 +179,9 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .rule-chip.fail{background:rgba(255,61,90,.1);color:var(--red)}
 .rule-chip.warn{background:rgba(255,171,0,.1);color:var(--amber)}
 
+/* data quality */
+.dq-wrap{margin-bottom:8px;font-size:9px}
+
 /* pattern panel */
 .pattern-panel{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
 .pat-item{background:var(--bg3);border-radius:5px;padding:7px 10px;border-left:3px solid}
@@ -1122,11 +1125,45 @@ async function fetchStockData(ticker) {
     .filter((p, i, arr) => arr.findIndex(q => q.name === p.name) === i);
   const patterns = allPatterns.sort((a,b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 3);
 
+  // ── DATA COVERAGE (정확도 추적) ──────────────────────────────────────────
+  const dataLen = closes.length;
+  const coverage = {
+    bars:    dataLen,
+    // 각 지표가 실제 계산됐는지 여부
+    ma200:   dataLen >= 200,   // 200일선 — 충분한 데이터
+    ma50:    dataLen >= 50,    // 50일선
+    ma20:    dataLen >= 20,    // 20일선
+    rsi:     rsi !== null,     // RSI
+    macd:    macd !== null,    // MACD
+    bb:      bBands !== null,  // 볼린저
+    atr:     atr  !== null,    // ATR
+    obv:     obv  !== null,    // OBV
+    pattern: dataLen >= 60,    // 차트 패턴 (60일 필요)
+    candle:  dataLen >= 5,     // 캔들 패턴
+    // 전체 신뢰도 등급
+    grade: dataLen >= 200 ? 'A' : dataLen >= 100 ? 'B' : dataLen >= 60 ? 'C' : 'D',
+    // 신뢰도 설명
+    gradeLabel: dataLen >= 200 ? '정상'
+               : dataLen >= 100 ? '보통 (200일선 불완전)'
+               : dataLen >= 60  ? '낮음 (50·200일선 불완전)'
+               : '매우낮음 (대부분 지표 불완전)',
+    // 계산에서 빠진 지표 목록
+    missing: [
+      dataLen < 200 && '200일선',
+      dataLen < 50  && '50일선',
+      rsi === null  && 'RSI',
+      macd === null && 'MACD',
+      bBands === null && '볼린저밴드',
+      atr === null  && 'ATR',
+      dataLen < 60  && '차트패턴',
+    ].filter(Boolean),
+  };
+
   return { ticker, curr, prev, change, sma20, sma50, sma200,
            rsi, volRatio, priceRunPct, aboveMA50pct,
            goldenCross, nearGolden, deathCross, aboveMA200, aboveMA50, nearMA,
            macd, bBands, atr, obv,
-           closes, highs, lows, opens, patterns };
+           closes, highs, lows, opens, patterns, coverage };
 }
 
 
@@ -1846,6 +1883,18 @@ function getSignal(d) {
 
   const total = trend + entry + vol + ctx + risk + patternBonus + macdBonus + bbBonus;
 
+  // ── 누락 지표 → 점수 신뢰도 노트 ──────────────────────────────────────────
+  const scoreNotes = [];
+  const cov = d.coverage;
+  if (cov) {
+    if (!cov.ma200) scoreNotes.push({ text:'200일선 누락 (데이터 부족)', impact: '추세점수 불완전' });
+    if (!cov.ma50)  scoreNotes.push({ text:'50일선 누락', impact: '진입타이밍 불완전' });
+    if (!cov.rsi)   scoreNotes.push({ text:'RSI 계산 불가', impact: '과매수/과매도 판단 불가' });
+    if (!cov.macd)  scoreNotes.push({ text:'MACD 계산 불가 (데이터 부족)', impact: '모멘텀 미반영' });
+    if (!cov.bb)    scoreNotes.push({ text:'볼린저밴드 계산 불가', impact: '변동성 미반영' });
+    if (!cov.pattern) scoreNotes.push({ text:'차트패턴 탐지 불가 (60일 미만)', impact: '패턴 보너스 없음' });
+  }
+
   // Gate: failing primary trend → cap at watch/sell
   let signal;
   if (!d.aboveMA200 || d.deathCross) {
@@ -1859,7 +1908,10 @@ function getSignal(d) {
     else                               signal = 'strong-sell';
   }
 
-  return { signal, score: total, trend, entry, vol, ctx, risk, reasons };
+  // 데이터 부족으로 핵심 지표 누락 시 신호 신뢰도 하향
+  const signalReliable = !cov || (cov.ma200 && cov.ma50 && cov.rsi);
+
+  return { signal, score: total, trend, entry, vol, ctx, risk, reasons, scoreNotes, signalReliable };
 }
 
 function getPortfolioSignal(d, h) {
@@ -2274,6 +2326,32 @@ function buildCard(d, market) {
 
   const topReasons = (d.reasons||[]).filter(r => !(d.patterns||[]).some(p=>r.text.includes(p.name))).slice(0,2).map(r => `<span class="${r.t}">${r.text}</span>`).join(' · ');
 
+  // ── 데이터 품질 표시 ──────────────────────────────────────────────────────
+  const cov = d.coverage;
+  const dqHtml = (() => {
+    if (!cov) return '';
+    const gradeColor = { A:'var(--green)', B:'var(--amber)', C:'var(--red)', D:'var(--red)' }[cov.grade];
+    const gradeIcon  = { A:'✓', B:'⚠', C:'⚠', D:'✗' }[cov.grade];
+    // 신뢰도 배지
+    const badge = `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
+      background:${gradeColor}18;color:${gradeColor};border:1px solid ${gradeColor}40;letter-spacing:.04em">
+      ${gradeIcon} 데이터 ${cov.grade}등급 · ${cov.bars}봉
+    </span>`;
+    // 누락 지표 경고 (있을 때만)
+    const missingHtml = cov.missing.length > 0
+      ? `<div style="margin-top:5px;padding:6px 8px;background:rgba(255,171,0,.06);
+           border:1px solid rgba(255,171,0,.2);border-radius:4px;font-size:9px;line-height:1.6;color:var(--amber)">
+           ⚠ 점수 미반영 지표: <strong>${cov.missing.join(' · ')}</strong>
+           <div style="color:var(--text2);margin-top:2px">→ 야후에서 ${cov.bars}일치 데이터 수신 (정확도를 위해 200일 필요)</div>
+         </div>`
+      : '';
+    // 신호 신뢰도 경고
+    const reliabilityHtml = !d.signalReliable
+      ? `<div style="margin-top:4px;font-size:9px;color:var(--amber)">⚡ 핵심 지표 누락으로 신호 신뢰도 낮음 — 참고용으로만 활용</div>`
+      : '';
+    return `<div class="dq-wrap">${badge}${missingHtml}${reliabilityHtml}</div>`;
+  })();
+
   // Build pattern panel HTML
   const patternHtml = (d.patterns && d.patterns.length > 0)
     ? `<div class="pattern-panel">${d.patterns.map(p => `
@@ -2302,13 +2380,17 @@ function buildCard(d, market) {
       <span class="price-chg ${chgCls}">${chgTxt}</span>
     </div>
 
+    ${dqHtml}
+
     <div class="score-bar-wrap">
       <div class="score-row">
-        <span class="score-label">종합점수 (70↑ = BUY)</span>
-        <span class="score-num ${scoreCol}">${score}/100+</span>
+        <span class="score-label">종합점수 (70↑ = BUY)${!d.signalReliable ? ' ⚡' : ''}</span>
+        <span class="score-num ${scoreCol}" title="${!d.signalReliable ? '데이터 부족으로 점수 불완전' : ''}">
+          ${score}pt${!d.signalReliable ? '<span style="color:var(--amber);font-size:8px;margin-left:3px">불완전</span>' : ''}
+        </span>
       </div>
       <div class="score-track">
-        <div class="score-fill" style="width:${Math.min(100,scoreW)}%;background:${scoreGrad}"></div>
+        <div class="score-fill" style="width:${Math.min(100,scoreW)}%;background:${!d.signalReliable ? '#ffab00' : scoreGrad}"></div>
       </div>
     </div>
 
@@ -2360,6 +2442,7 @@ function buildCard(d, market) {
 
     ${patternHtml}
 
+    ${dqHtml && (d.scoreNotes||[]).length > 0 ? '' : ''}
     <div class="card-reason">${topReasons || '<span style="color:var(--dim2)">분석 중...</span>'}</div>
 
     <div class="card-actions">
