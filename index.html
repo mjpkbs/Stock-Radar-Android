@@ -1703,35 +1703,102 @@ function priceLbl(market) {
 // ═══════════════════════════════════════════════
 
 // Yahoo Finance screener query presets
-const YF_SCREENERS = {
-  us: {
-    gainers: 'day_gainers',
-    volume:  'most_actives',
-    growth:  'growth_technology_stocks',
-    '52wk':  'day_gainers',   // filter by nearHigh after fetch
-  },
-  kr: {
-    gainers: 'day_gainers',
-    volume:  'most_actives',
-    growth:  'growth_technology_stocks',
-    '52wk':  'day_gainers',
-  },
+// ── US: Yahoo Finance predefined screeners (US-only, exchange verified) ──────
+const YF_US_SCREENERS = {
+  gainers: 'day_gainers',
+  volume:  'most_actives',
+  growth:  'growth_technology_stocks',
+  '52wk':  'day_gainers',
 };
 
+// ── KR: custom screener configs — POST API with exchange filter ───────────────
+const YF_KR_CFG = {
+  gainers: { sortField:'percentchange',     sortType:'DESC', label:'🚀 당일 급등' },
+  volume:  { sortField:'dayvolume',         sortType:'DESC', label:'📊 거래량 급증' },
+  growth:  { sortField:'epsgrowthratio',    sortType:'DESC', label:'📈 성장주 EPS' },
+  '52wk':  { sortField:'fiftytwowkpctchg', sortType:'DESC', label:'🏆 52주 성과' },
+};
+
+// US: predefined screener GET request, filter non-KR tickers
+async function fetchUSScreener(screenerId) {
+  const qid = YF_US_SCREENERS[screenerId];
+  const url = 'https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved'
+    + '?formatted=false&lang=en-US&region=US&scrIds=' + qid + '&count=25&corsDomain=finance.yahoo.com';
+  const data = await fetchWithProxy(url);
+  const quotes = data && data.finance && data.finance.result && data.finance.result[0]
+    ? data.finance.result[0].quotes : [];
+  const labels = { gainers:'🚀 당일 급등', volume:'📊 거래량 급증', growth:'📈 성장주', '52wk':'🏆 신고가' };
+  // Hard filter: drop any .KS / .KQ symbols that may slip through
+  return quotes
+    .filter(function(q) { return q.symbol && !/\.(KS|KQ)$/i.test(q.symbol); })
+    .map(function(q) { return {
+      ticker: q.symbol,
+      name:   q.shortName || q.longName || q.symbol,
+      sector: q.sector || q.industry || 'Other',
+      note:   (labels[screenerId] || screenerId) + ' · ' + (q.regularMarketChangePercent != null ? q.regularMarketChangePercent.toFixed(2) : '--') + '%',
+      _src:   screenerId,
+    }; });
+}
+
+// KR: Yahoo Finance custom screener POST — only KSC (KOSPI) and KOE (KOSDAQ)
+async function fetchKRScreener(screenerId) {
+  const cfg = YF_KR_CFG[screenerId];
+  const bodyObj = {
+    size: 25, offset: 0,
+    sortField: cfg.sortField,
+    sortType: cfg.sortType,
+    quoteType: 'EQUITY',
+    query: {
+      operator: 'AND',
+      operands: [{
+        operator: 'OR',
+        operands: [
+          { operator: 'eq', operands: ['exchange', 'KSC'] },
+          { operator: 'eq', operands: ['exchange', 'KOE'] },
+        ],
+      }],
+    },
+    userId: '', userIdType: 'guid',
+  };
+  const bodyStr = JSON.stringify(bodyObj);
+  const endpoints = [
+    'https://query1.finance.yahoo.com/v1/finance/screener?lang=ko-KR&region=KR&formatted=false&corsDomain=finance.yahoo.com',
+    'https://query2.finance.yahoo.com/v1/finance/screener?lang=ko-KR&region=KR&formatted=false',
+  ];
+  let quotes = [];
+  for (var ei = 0; ei < endpoints.length; ei++) {
+    try {
+      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(endpoints[ei]), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyStr,
+        signal: AbortSignal.timeout(14000),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      quotes = data && data.finance && data.finance.result && data.finance.result[0]
+        ? data.finance.result[0].quotes : [];
+      if (quotes.length > 0) break;
+    } catch(e) {
+      console.warn('KR screener attempt', ei, 'failed:', e.message);
+    }
+  }
+  // Hard filter: only .KS or .KQ tickers — guaranteed no US stocks
+  return quotes
+    .filter(function(q) { return q.symbol && /\.(KS|KQ)$/i.test(q.symbol); })
+    .map(function(q) { return {
+      ticker: q.symbol,
+      name:   q.shortName || q.longName || q.symbol,
+      sector: q.sector || q.industry || '기타',
+      note:   cfg.label + ' · ' + (q.regularMarketChangePercent != null ? q.regularMarketChangePercent.toFixed(2) : '--') + '%',
+      _src:   screenerId,
+    }; });
+}
+
+// Router: market determines which API path to use
 async function fetchYFScreener(market, screenerId) {
-  const region = market === 'kr' ? 'KR' : 'US';
-  const lang   = market === 'kr' ? 'ko-KR' : 'en-US';
-  const qid    = YF_SCREENERS[market][screenerId];
-  const url    = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&lang=${lang}&region=${region}&scrIds=${qid}&count=25&corsDomain=finance.yahoo.com`;
-  const data   = await fetchWithProxy(url);
-  const quotes = data?.finance?.result?.[0]?.quotes || [];
-  return quotes.map(q => ({
-    ticker: q.symbol,
-    name:   q.shortName || q.longName || q.symbol,
-    sector: q.sector || q.industry || '기타',
-    note:   (screenerId==='gainers'?'🚀 당일 급등':screenerId==='volume'?'📊 거래량 급증':'📈 성장주') + ' · ' + (q.regularMarketChangePercent?.toFixed(2)||'--') + '%',
-    _src:   screenerId,
-  }));
+  if (market === 'kr') return fetchKRScreener(screenerId);
+  return fetchUSScreener(screenerId);
 }
 
 async function buildScanList(market) {
@@ -1780,8 +1847,16 @@ async function buildScanList(market) {
       list.set(h.ticker, { ticker:h.ticker, name:h.name, sector:h.sector||'보유중', note:'💼 포트폴리오', _src:'portfolio' });
   });
 
-  activeScanList[market] = Array.from(list.values());
-  return activeScanList[market];
+  // ── HARD MARKET FILTER — last line of defense ─────────────────────────────
+  // Regardless of what any screener returned, enforce ticker format per market
+  const allItems = Array.from(list.values());
+  const filtered = allItems.filter(function(s) {
+    if (!s.ticker) return false;
+    const isKR = /\.(KS|KQ)$/i.test(s.ticker);
+    return market === 'kr' ? isKR : !isKR;
+  });
+  activeScanList[market] = filtered;
+  return filtered;
 }
 
 function updateSourceSummary(market) {
