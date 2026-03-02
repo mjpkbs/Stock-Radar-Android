@@ -200,35 +200,62 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .btn-watch{padding:8px 12px;background:none;border:1px solid var(--border2);border-radius:5px;color:var(--text2);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s}
 .btn-watch:hover,.btn-watch.on{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
 
-/* ── PORTFOLIO TABLE ─────────────────────── */
+/* ── PORTFOLIO ───────────────────────────── */
 .pf-empty{text-align:center;padding:70px 20px;color:var(--dim2);font-size:12px;line-height:2}
 .pf-empty .big{font-size:38px;margin-bottom:14px;opacity:.4}
+
+/* summary strip */
+.pf-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.pf-summary-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.pf-sc-label{font-size:9px;color:var(--dim2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.pf-sc-val{font-size:17px;font-weight:700;color:#fff;white-space:nowrap}
+.pf-sc-sub{font-size:9px;color:var(--dim2);margin-top:2px}
+.pf-sc-val.pos{color:var(--green)}.pf-sc-val.neg{color:var(--red)}
+.pf-sc-val.amber{color:var(--amber)}
+
+/* section tabs */
+.pf-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px}
+.pf-tab{padding:9px 16px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--dim2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.pf-tab:hover{color:var(--text)}
+.pf-tab.active{color:var(--green);border-bottom-color:var(--green)}
+.pf-tab-cnt{display:inline-block;background:var(--bg3);border-radius:10px;font-size:9px;padding:1px 6px;margin-left:5px;color:var(--dim2)}
+
+/* table */
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:12px}
 thead tr{background:var(--bg3)}
 th{padding:9px 12px;text-align:left;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap}
-td{padding:12px;border-bottom:1px solid var(--border);vertical-align:top}
+td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
 tbody tr{background:var(--bg2);transition:background .12s}
 tbody tr:hover{background:var(--bg3)}
 tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
+tbody tr.sold-row{opacity:.65}
 @keyframes rowflash{0%,100%{background:var(--bg2)}50%{background:rgba(255,61,90,.07)}}
 
-.pf-ticker{font-size:15px;font-weight:700;color:#fff}
+.pf-ticker{font-size:14px;font-weight:700;color:#fff}
 .pf-name{font-size:9px;color:var(--dim2);margin-top:1px}
 .pf-score{font-size:9px;margin-top:3px}
 
-.profit-chip{display:inline-block;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600}
-.profit-chip.pos{background:rgba(0,230,118,.1);color:var(--green)}
-.profit-chip.neg{background:rgba(255,61,90,.1);color:var(--red)}
+.profit-chip{display:inline-block;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.profit-chip.pos{background:rgba(0,230,118,.12);color:var(--green)}
+.profit-chip.neg{background:rgba(255,61,90,.12);color:var(--red)}
+
+.pamt{font-size:11px;font-weight:600;margin-top:2px}
+.pamt.pos{color:var(--green)}.pamt.neg{color:var(--red)}
 
 .lots-list{margin-top:6px;border-top:1px solid var(--border);padding-top:5px}
-.lot-item{font-size:9px;color:var(--dim2);line-height:1.7}
+.lot-item{font-size:9px;color:var(--dim2);line-height:1.8}
+.lot-sell{font-size:9px;color:var(--amber);line-height:1.8}
 .lot-avg{font-size:9px;color:var(--amber);margin-top:2px;font-weight:600}
 
-.btn-add{width:100%;padding:6px;background:var(--green-dim);border:1px solid rgba(0,230,118,.3);border-radius:4px;color:var(--green);font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:all .15s;margin-bottom:5px}
-.btn-add:hover{background:rgba(0,230,118,.15)}
+/* action buttons */
+.btn-add{width:100%;padding:6px;background:var(--green-dim);border:1px solid rgba(0,230,118,.3);border-radius:4px;color:var(--green);font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:all .15s;margin-bottom:4px}
+.btn-add:hover{background:rgba(0,230,118,.2)}
+.btn-sell-partial{width:100%;padding:6px;background:rgba(255,171,0,.08);border:1px solid rgba(255,171,0,.3);border-radius:4px;color:var(--amber);font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:all .15s;margin-bottom:4px}
+.btn-sell-partial:hover{background:rgba(255,171,0,.15)}
 .btn-del{width:100%;padding:6px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--dim2);font-family:var(--mono);font-size:9px;cursor:pointer;transition:all .15s;letter-spacing:.05em;text-transform:uppercase}
 .btn-del:hover{border-color:var(--red);color:var(--red)}
+.sold-badge{display:inline-block;font-size:8px;padding:2px 6px;border-radius:3px;background:rgba(122,143,170,.15);color:var(--dim2);font-weight:700;letter-spacing:.06em;vertical-align:middle;margin-left:5px}
 
 /* ── ALARM PANEL ─────────────────────────── */
 .alarm-card{background:var(--bg2);border-left:3px solid var(--red);border-radius:5px;padding:12px 14px;margin-bottom:8px;font-size:11px}
@@ -478,6 +505,29 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeModal()">취소</button>
       <button class="btn-ok" onclick="confirmBuy()">✓ 기록하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- SELL MODAL -->
+<div class="overlay" id="sell-modal">
+  <div class="modal">
+    <h3 id="sell-modal-title">매도 기록 📤</h3>
+    <p id="sell-modal-desc" style="font-size:11px;color:var(--text2);margin-bottom:14px;white-space:pre-line">--</p>
+    <div class="fg"><label id="sell-price-label">매도 가격</label><input type="number" id="inp-sell-price" placeholder="--" step="1" min="0"></div>
+    <div class="fg">
+      <label>매도 수량 (주)</label>
+      <div style="display:flex;gap:7px;align-items:center">
+        <input type="number" id="inp-sell-shares" placeholder="보유 수량" step="1" min="1" style="flex:1">
+        <button onclick="setAllShares()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text2);font-family:var(--mono);font-size:10px;padding:9px 12px;cursor:pointer;white-space:nowrap">전량</button>
+      </div>
+    </div>
+    <div id="sell-preview" style="background:var(--bg3);border-radius:6px;padding:11px 13px;font-size:11px;color:var(--text2);margin-bottom:14px;display:none">
+      <div id="sell-preview-text"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeSellModal()">취소</button>
+      <button class="btn-ok" onclick="confirmSell()" id="sell-confirm-btn">✓ 매도 기록</button>
     </div>
   </div>
 </div>
@@ -798,6 +848,11 @@ let buyTicker     = null;
 let buyMarket     = null;
 
 let screenerData  = { us: {}, kr: {} };
+// Closed (sold) trade history: { ticker, name, lots, sells, realizedPnL, closedAt }
+let closedTrades  = JSON.parse(localStorage.getItem('sr2_closed') || '{"us":[],"kr":[]}');
+let pfTab         = 'open';  // 'open' | 'closed'
+let sellTicker    = null;
+let sellMarket    = null;
 let portfolios    = JSON.parse(localStorage.getItem('sr2_portfolios') || '{"us":[],"kr":[]}');
 let alarmLogs     = JSON.parse(localStorage.getItem('sr2_logs')      || '{"us":[],"kr":[]}');
 let snoozed       = {};
@@ -2142,73 +2197,223 @@ async function updatePortfolio(silent = false) {
   document.getElementById('badge-portfolio').style.display = hasSell ? '' : 'none';
 }
 
+function pfSummary(m) {
+  const pf = portfolios[m];
+  const ct = closedTrades[m] || [];
+
+  // Unrealized P&L from open positions
+  let totalCost = 0, totalCurr = 0, unrealPnL = 0;
+  pf.forEach(h => {
+    const avg   = h.avgPrice || h.purchasePrice || 0;
+    const tot   = h.totalShares || h.shares || 0;
+    const curr  = h.liveData?.curr;
+    totalCost  += avg * tot;
+    if (curr) { totalCurr += curr * tot; unrealPnL += (curr - avg) * tot; }
+    else       { totalCurr += avg * tot; } // fallback
+  });
+
+  // Realized P&L from closed/partial sells
+  let realPnL = 0;
+  ct.forEach(t => { realPnL += t.realizedPnL || 0; });
+  // Also collect realized from partial sells on open positions
+  pf.forEach(h => {
+    (h.sells || []).forEach(s => { realPnL += s.realizedPnL || 0; });
+  });
+
+  const totalPnL   = unrealPnL + realPnL;
+  const totalPnLPct = totalCost > 0 ? totalPnL / totalCost : 0;
+  const posClass   = v => v >= 0 ? 'pos' : 'neg';
+  const fmtPnL     = v => (v >= 0 ? '+' : '-') + fmt(Math.abs(v), m);
+  const fmtPct     = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%';
+
+  return `<div class="pf-summary">
+    <div class="pf-summary-card">
+      <div class="pf-sc-label">총 평가금액</div>
+      <div class="pf-sc-val">${fmt(totalCurr, m)}</div>
+      <div class="pf-sc-sub">투자원금 ${fmt(totalCost, m)}</div>
+    </div>
+    <div class="pf-summary-card">
+      <div class="pf-sc-label">평가손익 (미실현)</div>
+      <div class="pf-sc-val ${posClass(unrealPnL)}">${fmtPnL(unrealPnL)}</div>
+      <div class="pf-sc-sub">${fmtPct(totalCost > 0 ? unrealPnL / totalCost : 0)}</div>
+    </div>
+    <div class="pf-summary-card">
+      <div class="pf-sc-label">실현손익 (매도 확정)</div>
+      <div class="pf-sc-val ${posClass(realPnL)}">${fmtPnL(realPnL)}</div>
+      <div class="pf-sc-sub">${ct.length + pf.filter(h=>(h.sells||[]).length>0).length}건 매도</div>
+    </div>
+    <div class="pf-summary-card" style="border-color:${totalPnL >= 0 ? 'var(--green)' : 'var(--red)'}">
+      <div class="pf-sc-label">📊 총 손익</div>
+      <div class="pf-sc-val ${posClass(totalPnL)}">${fmtPnL(totalPnL)}</div>
+      <div class="pf-sc-sub">${fmtPct(totalPnLPct)}</div>
+    </div>
+  </div>`;
+}
+
 function renderPortfolio() {
   const m   = activeMarket;
   const pf  = portfolios[m];
+  const ct  = closedTrades[m] || [];
   const el  = document.getElementById('portfolio-content');
-  if (!pf.length) {
-    el.innerHTML = `<div class="pf-empty"><div class="big">📭</div>보유 종목이 없습니다.<br>스캐너에서 <strong>매수 기록</strong> 버튼을 클릭하세요.</div>`;
+
+  const hasAny = pf.length > 0 || ct.length > 0;
+  if (!hasAny) {
+    el.innerHTML = `<div class="pf-empty"><div class="big">📭</div>보유 종목이 없습니다.<br><strong>＋ 종목 검색</strong> 버튼으로 추가하거나 스캐너에서 매수 기록하세요.</div>`;
     return;
   }
-  const rows = pf.map(h => {
-    const d        = h.liveData;
-    const avg      = h.avgPrice || h.purchasePrice;
-    const total    = h.totalShares || h.shares;
-    const lots     = h.lots || [{ price: avg, shares: total, date: h.addedAt }];
-    const profitPct = d ? d.profitPct : (d?.curr ? (d.curr - avg)/avg : null);
-    const profitAmt = d ? d.profitAmt : null;
-    const curr     = d?.curr;
-    const sig      = d?.signal || '--';
-    const score    = d?.score;
-    const rsi      = d?.rsi;
-    const hasAlarm = d?.alarms?.length > 0;
-    const sigLbl   = { 'strong-buy':'🔥 강력매수','buy':'✅ 매수','watch':'👀 관찰','hold':'– 보류','sell':'⚠️ 매도','strong-sell':'🔴 강력매도' }[sig] || sig;
-    const pCls     = (profitPct ?? 0) >= 0 ? 'pos' : 'neg';
-    const pStr     = profitPct != null ? `${profitPct>=0?'+':''}${(profitPct*100).toFixed(2)}%` : '--';
-    const pAmt     = profitAmt != null ? `${profitAmt>=0?'+':'-'}${fmt(Math.abs(profitAmt), m)}` : '';
-    const scoreDisp = score != null ? `<span style="font-size:9px;color:${score>=70?'var(--green)':score>=50?'var(--amber)':'var(--red)'}">점수 ${score}/100</span>` : '';
-    const peakDisp  = h.peakPrice ? `<div style="font-size:9px;color:var(--dim2)">고점 ${fmt(h.peakPrice,m)}</div>` : '';
-    const dispTicker = h.ticker.replace(/\.(KS|KQ)$/,'');
 
-    const lotsHtml = lots.length > 1
-      ? `<div class="lots-list">${lots.map((l,i)=>`<div class="lot-item">매수${i+1}: ${fmt(l.price,m)} × ${l.shares}주 (${new Date(l.date).toLocaleDateString('ko-KR')})</div>`).join('')}<div class="lot-avg">평균 ${fmt(avg,m)} · 총 ${total}주</div></div>` : '';
+  // Tab header
+  const tabHtml = `<div class="pf-tabs">
+    <div class="pf-tab ${pfTab==='open'?'active':''}" onclick="switchPfTab('open')">
+      📈 보유 종목 <span class="pf-tab-cnt">${pf.length}</span>
+    </div>
+    <div class="pf-tab ${pfTab==='closed'?'active':''}" onclick="switchPfTab('closed')">
+      📤 매도 내역 <span class="pf-tab-cnt">${ct.length + pf.filter(h=>(h.sells||[]).length>0).length}</span>
+    </div>
+  </div>`;
 
-    const alarmHtml = hasAlarm
-      ? d.alarms.map(a=>`<div style="font-size:10px;color:${a.color==='g'?'var(--green)':'var(--red)'};margin-bottom:2px">${a.title}</div>`).join('')
-      : `<span style="font-size:10px;color:var(--dim2)">정상 모니터링</span>`;
+  if (pfTab === 'open') {
+    if (!pf.length) {
+      el.innerHTML = pfSummary(m) + tabHtml + `<div class="pf-empty" style="padding:40px"><div class="big">📭</div>현재 보유 중인 종목이 없습니다.</div>`;
+      return;
+    }
+    const rows = pf.map(h => buildPfRow(h, m)).join('');
+    el.innerHTML = pfSummary(m) + tabHtml + `<div class="tbl-wrap"><table>
+      <thead><tr>
+        <th>종목</th><th>평균단가 / 매수 내역</th><th>현재가</th><th>평가손익</th><th>평가금액</th><th>RSI · 신호</th><th>알람</th><th>액션</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  } else {
+    // Closed trades tab
+    const closedRows = buildClosedRows(m);
+    el.innerHTML = pfSummary(m) + tabHtml + (closedRows
+      ? `<div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>종목</th><th>매수 단가</th><th>매도 가격</th><th>매도 수량</th><th>실현 손익</th><th>수익률</th><th>매도일</th><th>액션</th>
+          </tr></thead>
+          <tbody>${closedRows}</tbody>
+        </table></div>`
+      : `<div class="pf-empty" style="padding:40px"><div class="big">📤</div>매도 기록이 없습니다.</div>`);
+  }
+}
 
-    return `<tr class="${hasAlarm?'alarm-flash':''}">
-      <td>
-        <div class="pf-ticker">${m === 'kr' ? h.name : dispTicker}</div>
-        <div class="pf-name">${m === 'kr' ? dispTicker : h.name}</div>
-        <div class="pf-score">${scoreDisp}</div>
-      </td>
-      <td>
-        <div style="font-weight:600">${fmt(avg,m)}</div>
-        <div style="font-size:9px;color:var(--dim2)">${total}주 · ${lots.length}회 매수</div>
-        ${lotsHtml}
-      </td>
-      <td>${curr ? `<div>${fmt(curr,m)}</div>${peakDisp}` : '<span style="color:var(--dim2)">로딩…</span>'}</td>
-      <td>
-        <span class="profit-chip ${pCls}">${pStr}</span>
-        ${pAmt ? `<br><span style="font-size:10px;color:var(--${(profitAmt??0)>=0?'green':'red'})">${pAmt}</span>` : ''}
-      </td>
-      <td style="font-size:11px;color:var(--text2)">${rsi?.toFixed(1)??'--'}</td>
-      <td>${sigLbl}</td>
-      <td>${alarmHtml}</td>
-      <td>
-        <button class="btn-add" onclick="openModal('${h.ticker}','${m}')">+ 추가매수</button>
-        <button class="btn-del" onclick="delFromPf('${h.ticker}','${m}')">삭제</button>
-      </td>
-    </tr>`;
-  }).join('');
+function buildPfRow(h, m) {
+  const d        = h.liveData;
+  const avg      = h.avgPrice || h.purchasePrice;
+  const total    = h.totalShares || h.shares;
+  const lots     = h.lots || [{ price: avg, shares: total, date: h.addedAt }];
+  const curr     = d?.curr;
+  const profitPct = (curr && avg) ? (curr - avg) / avg : null;
+  const profitAmt = (curr && avg) ? (curr - avg) * total : null;
+  const evalAmt   = curr ? curr * total : null;
+  const sig      = d?.signal || '--';
+  const score    = d?.score;
+  const rsi      = d?.rsi;
+  const hasAlarm = d?.alarms?.length > 0;
+  const sigLbl   = {'strong-buy':'🔥 강력매수','buy':'✅ 매수','watch':'👀 관찰','hold':'– 보류','sell':'⚠️ 매도','strong-sell':'🔴 강력매도'}[sig] || sig;
+  const pCls     = (profitPct ?? 0) >= 0 ? 'pos' : 'neg';
+  const pStr     = profitPct != null ? (profitPct>=0?'+':'') + (profitPct*100).toFixed(2)+'%' : '--';
+  const dispTicker = h.ticker.replace(/\.(KS|KQ)$/, '');
+  const scoreClr = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--red)';
 
-  el.innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr>
-      <th>종목</th><th>평균단가 / 매수내역</th><th>현재가</th><th>수익률</th><th>RSI</th><th>신호</th><th>알람 상태</th><th>액션</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
+  const lotsHtml = `<div class="lots-list">
+    ${lots.map((l,i)=>`<div class="lot-item">매수${i+1}: ${fmt(l.price,m)} × ${l.shares}주 · ${new Date(l.date).toLocaleDateString('ko-KR')}</div>`).join('')}
+    ${(h.sells||[]).map((s,i)=>`<div class="lot-sell">매도${i+1}: ${fmt(s.price,m)} × ${s.shares}주 · ${new Date(s.date).toLocaleDateString('ko-KR')} · ${s.realizedPnL>=0?'+':''}${fmt(s.realizedPnL,m)}</div>`).join('')}
+    <div class="lot-avg">평균 ${fmt(avg,m)} · 잔여 ${total}주</div>
+  </div>`;
+
+  const peakDisp = h.peakPrice ? `<div style="font-size:9px;color:var(--dim2);margin-top:2px">고점 ${fmt(h.peakPrice,m)}</div>` : '';
+
+  const alarmHtml = hasAlarm
+    ? d.alarms.map(a=>`<div style="font-size:10px;color:${a.color==='g'?'var(--green)':'var(--red)'};margin-bottom:2px">${a.title}</div>`).join('')
+    : `<span style="font-size:10px;color:var(--dim2)">정상</span>`;
+
+  return `<tr class="${hasAlarm?'alarm-flash':''}">
+    <td>
+      <div class="pf-ticker">${m==='kr'?h.name:dispTicker}</div>
+      <div class="pf-name">${m==='kr'?dispTicker:h.name}</div>
+      ${score!=null?`<div style="font-size:9px;margin-top:2px;color:${scoreClr}">점수 ${score}/100</div>`:''}
+    </td>
+    <td>
+      <div style="font-weight:600">${fmt(avg,m)}</div>
+      <div style="font-size:9px;color:var(--dim2)">${lots.length}회 매수${(h.sells||[]).length?` · ${h.sells.length}회 매도`:''}</div>
+      ${lotsHtml}
+    </td>
+    <td>
+      ${curr?`<div style="font-weight:600">${fmt(curr,m)}</div>${peakDisp}`:'<span style="color:var(--dim2)">로딩…</span>'}
+    </td>
+    <td>
+      <div class="profit-chip ${pCls}">${pStr}</div>
+      ${profitAmt!=null?`<div class="pamt ${pCls}">${profitAmt>=0?'+':'-'}${fmt(Math.abs(profitAmt),m)}</div>`:''}
+    </td>
+    <td>
+      ${evalAmt!=null?`<div style="font-weight:600">${fmt(evalAmt,m)}</div><div style="font-size:9px;color:var(--dim2)">${total}주</div>`:'<span style="color:var(--dim2)">--</span>'}
+    </td>
+    <td>
+      <div style="font-size:11px;color:var(--text2)">RSI ${rsi?.toFixed(1)??'--'}</div>
+      <div style="font-size:10px;margin-top:3px">${sigLbl}</div>
+    </td>
+    <td>${alarmHtml}</td>
+    <td>
+      <button class="btn-add" onclick="openModal('${h.ticker}','${m}')">+ 추가매수</button>
+      <button class="btn-sell-partial" onclick="openSellModal('${h.ticker}','${m}')">📤 매도</button>
+      <button class="btn-del" onclick="delFromPf('${h.ticker}','${m}')">삭제</button>
+    </td>
+  </tr>`;
+}
+
+function buildClosedRows(m) {
+  const rows = [];
+  // Full closes from closedTrades
+  (closedTrades[m]||[]).forEach(t => {
+    (t.sells||[t]).forEach(s => {
+      const dispTicker = t.ticker.replace(/\.(KS|KQ)$/, '');
+      const pct = t.avgBuy > 0 ? (s.price - t.avgBuy) / t.avgBuy : 0;
+      const pCls = s.realizedPnL >= 0 ? 'pos' : 'neg';
+      rows.push(`<tr class="sold-row">
+        <td>
+          <div class="pf-ticker">${m==='kr'?t.name:dispTicker}<span class="sold-badge">전량매도</span></div>
+          <div class="pf-name">${m==='kr'?dispTicker:t.name}</div>
+        </td>
+        <td>${fmt(t.avgBuy,m)}</td>
+        <td><div style="font-weight:600">${fmt(s.price,m)}</div></td>
+        <td>${s.shares}주</td>
+        <td><div class="pamt ${pCls}">${s.realizedPnL>=0?'+':'-'}${fmt(Math.abs(s.realizedPnL),m)}</div></td>
+        <td><span class="profit-chip ${pCls}">${pct>=0?'+':''}${(pct*100).toFixed(2)}%</span></td>
+        <td style="font-size:10px;color:var(--dim2)">${new Date(s.date).toLocaleDateString('ko-KR')}</td>
+        <td><button class="btn-del" onclick="deleteClosed('${t.ticker}','${m}',${rows.length})">삭제</button></td>
+      </tr>`);
+    });
+  });
+  // Partial sells from open positions
+  portfolios[m].forEach(h => {
+    (h.sells||[]).forEach((s,si) => {
+      const dispTicker = h.ticker.replace(/\.(KS|KQ)$/, '');
+      const pct = h.avgPrice > 0 ? (s.price - s.avgAtSell) / s.avgAtSell : 0;
+      const pCls = s.realizedPnL >= 0 ? 'pos' : 'neg';
+      rows.push(`<tr class="sold-row">
+        <td>
+          <div class="pf-ticker">${m==='kr'?h.name:dispTicker}<span class="sold-badge">일부매도</span></div>
+          <div class="pf-name">${m==='kr'?dispTicker:h.name}</div>
+        </td>
+        <td>${fmt(s.avgAtSell,m)}</td>
+        <td><div style="font-weight:600">${fmt(s.price,m)}</div></td>
+        <td>${s.shares}주</td>
+        <td><div class="pamt ${pCls}">${s.realizedPnL>=0?'+':'-'}${fmt(Math.abs(s.realizedPnL),m)}</div></td>
+        <td><span class="profit-chip ${pCls}">${pct>=0?'+':''}${(pct*100).toFixed(2)}%</span></td>
+        <td style="font-size:10px;color:var(--dim2)">${new Date(s.date).toLocaleDateString('ko-KR')}</td>
+        <td><button class="btn-del" onclick="deletePartialSell('${h.ticker}','${m}',${si})">삭제</button></td>
+      </tr>`);
+    });
+  });
+  rows.sort((a,b) => 0); // keep insertion order (newest sell first handled by push order)
+  return rows.join('');
+}
+
+function switchPfTab(tab) {
+  pfTab = tab;
+  renderPortfolio();
 }
 
 // ═══════════════════════════════════════════════
@@ -2279,6 +2484,143 @@ function delFromPf(ticker, market) {
   portfolios[market] = portfolios[market].filter(h => h.ticker !== ticker);
   savePortfolios(); renderPortfolio(); finalRender(market);
   document.getElementById('badge-portfolio').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════
+// SELL MODAL
+// ═══════════════════════════════════════════════
+function openSellModal(ticker, market) {
+  sellTicker = ticker; sellMarket = market;
+  const h = portfolios[market].find(h => h.ticker === ticker);
+  if (!h) return;
+  const avg   = h.avgPrice || h.purchasePrice;
+  const total = h.totalShares || h.shares;
+  const curr  = h.liveData?.curr;
+  const dispTicker = ticker.replace(/\.(KS|KQ)$/, '');
+  const displayName = market === 'kr' ? h.name : dispTicker;
+
+  document.getElementById('sell-modal-title').textContent = `${displayName} 매도 기록 📤`;
+  document.getElementById('sell-price-label').textContent = market === 'kr' ? '매도 가격 (원)' : '매도 가격 ($)';
+  document.getElementById('inp-sell-price').placeholder = market === 'kr' ? '예: 75000' : '예: 185.50';
+  document.getElementById('inp-sell-price').step = market === 'kr' ? '1' : '0.01';
+  document.getElementById('inp-sell-price').value = curr ? (market === 'kr' ? Math.round(curr) : curr.toFixed(2)) : '';
+  document.getElementById('inp-sell-shares').value = '';
+  document.getElementById('inp-sell-shares').placeholder = `보유 수량: ${total}주`;
+  document.getElementById('inp-sell-shares').max = total;
+
+  const profitIfCurr = curr ? ((curr - avg) / avg * 100).toFixed(2) : null;
+  let desc = `평균단가: ${fmt(avg, market)} · 잔여 수량: ${total}주`;
+  if (curr) desc += `
+현재가: ${fmt(curr, market)} (${profitIfCurr >= 0 ? '+' : ''}${profitIfCurr}%)`;
+  document.getElementById('sell-modal-desc').textContent = desc;
+  document.getElementById('sell-preview').style.display = 'none';
+
+  // Live preview on input change
+  const priceEl = document.getElementById('inp-sell-price');
+  const sharesEl = document.getElementById('inp-sell-shares');
+  const updatePreview = () => {
+    const sp = parseFloat(priceEl.value);
+    const ss = parseInt(sharesEl.value);
+    if (!sp || !ss || ss <= 0 || sp <= 0) { document.getElementById('sell-preview').style.display='none'; return; }
+    const realized = (sp - avg) * ss;
+    const pct = ((sp - avg) / avg * 100).toFixed(2);
+    const isAll = ss >= total;
+    document.getElementById('sell-preview').style.display = '';
+    document.getElementById('sell-preview-text').innerHTML =
+      `<strong style="color:${realized>=0?'var(--green)':'var(--red)'}">실현 손익: ${realized>=0?'+':'-'}${fmt(Math.abs(realized), market)} (${pct >= 0 ? '+' : ''}${pct}%)</strong><br>` +
+      `${ss}주 @ ${fmt(sp, market)} · ${isAll ? '<span style="color:var(--amber)">전량 매도 → 보유 내역에서 제거</span>' : `잔여 ${total - ss}주 계속 보유`}`;
+    document.getElementById('sell-confirm-btn').textContent = isAll ? '✓ 전량 매도 기록' : '✓ 일부 매도 기록';
+  };
+  priceEl.oninput = updatePreview;
+  sharesEl.oninput = updatePreview;
+
+  document.getElementById('sell-modal').classList.add('show');
+  setTimeout(() => document.getElementById('inp-sell-price').focus(), 150);
+}
+
+function closeSellModal() {
+  document.getElementById('sell-modal').classList.remove('show');
+  sellTicker = sellMarket = null;
+}
+
+function setAllShares() {
+  const h = portfolios[sellMarket]?.find(h => h.ticker === sellTicker);
+  if (!h) return;
+  document.getElementById('inp-sell-shares').value = h.totalShares || h.shares;
+  document.getElementById('inp-sell-shares').dispatchEvent(new Event('input'));
+}
+
+function confirmSell() {
+  const price  = parseFloat(document.getElementById('inp-sell-price').value);
+  const shares = parseInt(document.getElementById('inp-sell-shares').value);
+  if (!price || !shares || price <= 0 || shares <= 0) { alert('매도 가격과 수량을 입력하세요.'); return; }
+
+  const m = sellMarket;
+  const idx = portfolios[m].findIndex(h => h.ticker === sellTicker);
+  if (idx < 0) return;
+  const h   = portfolios[m][idx];
+  const avg = h.avgPrice || h.purchasePrice;
+  const total = h.totalShares || h.shares;
+
+  if (shares > total) { alert(`보유 수량(${total}주)보다 많이 매도할 수 없습니다.`); return; }
+
+  const realizedPnL = (price - avg) * shares;
+  const sellRecord  = { price, shares, date: Date.now(), avgAtSell: avg, realizedPnL };
+
+  if (shares >= total) {
+    // Full close → move to closedTrades
+    if (!closedTrades[m]) closedTrades[m] = [];
+    closedTrades[m].unshift({
+      ticker: h.ticker, name: h.name, sector: h.sector,
+      avgBuy: avg, lots: h.lots || [],
+      sells: [sellRecord],
+      realizedPnL, closedAt: Date.now(),
+    });
+    portfolios[m].splice(idx, 1);
+  } else {
+    // Partial sell — reduce shares, keep position
+    if (!h.sells) h.sells = [];
+    h.sells.unshift(sellRecord);
+    // Recalculate remaining shares (don't change avgPrice for remaining lots)
+    h.totalShares = total - shares;
+    h.shares      = h.totalShares;
+    // Adjust lots proportionally (remove from latest lots first)
+    let toRemove = shares;
+    const lots = [...(h.lots || [{ price: avg, shares: total, date: h.addedAt }])];
+    for (let i = lots.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (lots[i].shares <= toRemove) { toRemove -= lots[i].shares; lots.splice(i, 1); }
+      else { lots[i].shares -= toRemove; toRemove = 0; }
+    }
+    h.lots = lots;
+    // Recalculate average
+    const totSh = h.lots.reduce((s,l) => s+l.shares, 0);
+    h.avgPrice  = totSh > 0 ? h.lots.reduce((s,l) => s+l.price*l.shares, 0) / totSh : avg;
+    h.totalShares = totSh;
+  }
+
+  savePortfolios();
+  localStorage.setItem('sr2_closed', JSON.stringify(closedTrades));
+  closeSellModal();
+  renderPortfolio();
+  finalRender(m);
+  addToast(sellTicker, `📤 매도 기록 완료 · ${realizedPnL>=0?'수익':'손실'} ${fmt(Math.abs(realizedPnL),m)}`, realizedPnL >= 0, m==='kr'?h.name:null);
+}
+
+function deleteClosed(ticker, market, rowIdx) {
+  if (!confirm('이 매도 기록을 삭제하시겠습니까?')) return;
+  // Find and remove — crude but safe (rowIdx may be mixed with partial sells)
+  const ct = closedTrades[market] || [];
+  const ci = ct.findIndex(t => t.ticker === ticker);
+  if (ci >= 0) ct.splice(ci, 1);
+  localStorage.setItem('sr2_closed', JSON.stringify(closedTrades));
+  renderPortfolio();
+}
+
+function deletePartialSell(ticker, market, sellIdx) {
+  if (!confirm('이 매도 기록을 삭제하시겠습니까? (수량이 되돌아오지 않습니다)')) return;
+  const h = portfolios[market].find(h => h.ticker === ticker);
+  if (h && h.sells) { h.sells.splice(sellIdx, 1); savePortfolios(); }
+  renderPortfolio();
 }
 
 function savePortfolios() {
@@ -2908,7 +3250,7 @@ window.addEventListener('load', () => {
 });
 
 // close modals on backdrop click
-['buy-modal','rules-modal','search-modal','screener-modal'].forEach(id => {
+['buy-modal','rules-modal','search-modal','screener-modal','sell-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) {
       this.classList.remove('show');
