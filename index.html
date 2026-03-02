@@ -257,40 +257,6 @@ tbody tr.sold-row{opacity:.65}
 .btn-del:hover{border-color:var(--red);color:var(--red)}
 .sold-badge{display:inline-block;font-size:8px;padding:2px 6px;border-radius:3px;background:rgba(122,143,170,.15);color:var(--dim2);font-weight:700;letter-spacing:.06em;vertical-align:middle;margin-left:5px}
 
-.apikey-wrap{display:flex;gap:7px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:10px 13px;margin-bottom:8px}
-.apikey-wrap input{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:12px;letter-spacing:.03em}
-.apikey-wrap input::placeholder{color:var(--dim2)}
-.apikey-save-btn{background:var(--blue-dim);border:1px solid var(--blue);border-radius:5px;color:var(--blue);font-family:var(--mono);font-size:10px;font-weight:600;padding:6px 12px;cursor:pointer;white-space:nowrap;transition:all .15s}
-.apikey-save-btn:hover{background:rgba(68,136,255,.2)}
-.apikey-status{font-size:10px;margin-top:5px;margin-bottom:12px}
-.apikey-status.set{color:var(--green)}.apikey-status.unset{color:var(--amber)}
-
-.gemini-badge{display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:6px;margin-bottom:8px;font-size:10px;line-height:1.5;transition:all .15s}
-.gemini-badge.gb-strong{background:rgba(0,230,118,.1);border:1px solid rgba(0,230,118,.35)}
-.gemini-badge.gb-buy{background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.2)}
-.gemini-badge.gb-watch{background:rgba(255,171,0,.06);border:1px solid rgba(255,171,0,.2)}
-.gemini-badge.gb-no{background:rgba(122,143,170,.06);border:1px solid var(--border)}
-.gemini-badge.gb-sell{background:rgba(255,61,90,.06);border:1px solid rgba(255,61,90,.25)}
-.gemini-badge.gb-loading{background:var(--bg3);border:1px dashed var(--border2);opacity:.75}
-.gemini-icon{font-size:12px;flex-shrink:0}
-.gemini-label{font-weight:700;font-size:10px;letter-spacing:.02em}
-.gemini-label.g{color:var(--green)}.gemini-label.a{color:var(--amber)}.gemini-label.r{color:var(--red)}.gemini-label.d{color:var(--dim2)}
-.gemini-detail{font-size:9px;color:var(--dim2);margin-top:2px;line-height:1.55}
-.gemini-rr{font-size:9px;color:#a78bfa;font-weight:700;margin-left:auto;white-space:nowrap;padding-left:8px;flex-shrink:0}
-.gemini-conf{display:inline-block;font-size:8px;padding:1px 5px;border-radius:3px;font-weight:700;margin-left:4px;vertical-align:middle}
-.gemini-conf.high{background:rgba(0,230,118,.15);color:var(--green)}
-.gemini-conf.med{background:rgba(255,171,0,.12);color:var(--amber)}
-.gemini-conf.low{background:rgba(122,143,170,.12);color:var(--dim2)}
-.gkey-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap}
-.gkey-bar input{flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 11px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none;transition:border-color .15s}
-.gkey-bar input:focus{border-color:var(--blue)}
-.gkey-bar input::placeholder{color:var(--dim2)}
-.gkey-bar-label{font-size:10px;color:var(--dim2);white-space:nowrap;font-weight:600}
-.gkey-save{background:var(--blue-dim);border:1px solid var(--blue);border-radius:5px;color:var(--blue);font-family:var(--mono);font-size:10px;font-weight:700;padding:7px 14px;cursor:pointer;white-space:nowrap;transition:all .15s}
-.gkey-save:hover{background:rgba(68,136,255,.2)}
-.gkey-status{font-size:9px;white-space:nowrap;font-weight:600}
-.gkey-status.set{color:var(--green)}.gkey-status.unset{color:var(--amber)}
-
 /* ── ALARM PANEL ─────────────────────────── */
 .alarm-card{background:var(--bg2);border-left:3px solid var(--red);border-radius:5px;padding:12px 14px;margin-bottom:8px;font-size:11px}
 .alarm-card.green{border-left-color:var(--green)}
@@ -491,12 +457,6 @@ tbody tr.sold-row{opacity:.65}
     </div>
     <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="source-summary" style="margin-bottom:10px;font-size:10px;color:var(--dim2);display:none"></div>
-    <div class="gkey-bar" id="gkey-bar">
-      <span class="gkey-bar-label">&#x1F48E; Gemini AI</span>
-      <input type="password" id="gkey-input" placeholder="Gemini API Key (AIza...) — Google AI Studio에서 무료 발급" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')saveGeminiKey()">
-      <button class="gkey-save" onclick="saveGeminiKey()">저장</button>
-      <span class="gkey-status unset" id="gkey-status">키 미설정 — AI 분석 비활성</span>
-    </div>
     <div class="filter-bar">
       <button class="fbtn active" onclick="setFilter('all',this)">전체</button>
       <button class="fbtn" onclick="setFilter('strong-buy',this)">🔥 강력매수</button>
@@ -925,7 +885,6 @@ const PROXIES = [
 document.addEventListener('DOMContentLoaded', () => {
   startClock();
   renderSkeletons();
-  updateGeminiKeyUI();
   renderPortfolio();
   renderLog();
   runScreener();
@@ -1989,64 +1948,23 @@ async function runScreener(silent = false) {
   updateSourceSummary(m);
 
   let done = 0, buyCnt = 0;
-  const geminiEnabled = !!_geminiKey;
-  const buyTickers = [];
-
-  // ── Phase 1: Technical scan ─────────────────────────────────────────────────
   for (const s of wl) {
     try {
       const raw = await fetchStockData(s.ticker);
       const sig = getSignal(raw);
-      screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, gemini:null };
-      if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
-        buyCnt++;
-        if (geminiEnabled) buyTickers.push(s.ticker);
+      screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
+      if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
+      if (sig.signal === 'strong-buy' && notifOn) {
+        addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
+        addLog(m, { type:'buy', ticker:s.ticker, name:s.name, score:sig.score, reasons:sig.reasons, time:Date.now() });
       }
     } catch(e) {
       screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
     }
     done++;
-    if (!silent) pfx.style.width = `${(done/wl.length) * (geminiEnabled && buyTickers.length ? 65 : 100)}%`;
+    if (!silent) pfx.style.width = `${(done/wl.length)*100}%`;
     updateSingleCard(m, wl[done-1].ticker);
     await sleep(280);
-  }
-
-  // ── Phase 2: Gemini AI analysis for buy/strong-buy signals ──────────────────
-  if (geminiEnabled && buyTickers.length > 0) {
-    if (!silent) {
-      document.getElementById('scan-status').textContent = `💎 Gemini 분석 중... (${buyTickers.length}개)`;
-      document.getElementById('scan-status').style.color = 'var(--blue)';
-    }
-    for (let gi = 0; gi < buyTickers.length; gi++) {
-      const ticker = buyTickers[gi];
-      const d = screenerData[m][ticker];
-      if (!d || d.error) continue;
-      d.gemini = { status: 'loading' };
-      updateSingleCard(m, ticker);
-      try {
-        const gResult = await callGeminiAnalysis(d, ticker, m);
-        d.gemini = gResult;
-        applyGeminiAdjustment(d);
-      } catch(e) {
-        d.gemini = { status: 'error', error: e.message };
-      }
-      updateSingleCard(m, ticker);
-      if (!silent) pfx.style.width = `${65 + ((gi+1)/buyTickers.length)*35}%`;
-      if (gi < buyTickers.length - 1) await sleep(600);
-    }
-    // Recount after Gemini adjustment
-    buyCnt = Object.values(screenerData[m]).filter(d => d.signal==='strong-buy'||d.signal==='buy').length;
-  }
-
-  // ── Notifications ────────────────────────────────────────────────────────────
-  for (const ticker of (geminiEnabled ? buyTickers : wl.map(s=>s.ticker))) {
-    const d = screenerData[m][ticker];
-    if (!d || d.signal !== 'strong-buy') continue;
-    if (notifOn) {
-      const gLabel = d.gemini?.status==='done' ? ` · Gemini:${d.gemini.decision}` : '';
-      addToast(ticker, '🔥 강력 매수 신호!' + gLabel, true, m==='kr' ? d.name : null);
-      addLog(m, { type:'buy', ticker, name:d.name, score:d.score, reasons:d.reasons, time:Date.now() });
-    }
   }
 
   finalRender(m);
@@ -2233,164 +2151,15 @@ function buildCard(d, market) {
 
     ${patternHtml}
 
-    ${buildGeminiBadge(d)}
     <div class="card-reason">${topReasons || '<span style="color:var(--dim2)">분석 중...</span>'}</div>
 
     <div class="card-actions">
       <button class="btn-buy" onclick="openModal('${d.ticker}','${market}')" ${inPf?'disabled':''}>
         ${inPf ? '✓ 보유중' : '매수 기록'}
       </button>
-
       <button class="btn-watch" onclick="this.classList.toggle('on')" title="관찰">👀</button>
     </div>
   </div>`;
-}
-
-// ═══════════════════════════════════════════════
-// ═══════════════════════════════════════════════
-// GEMINI AI — KEY MANAGEMENT & ANALYSIS ENGINE
-// ═══════════════════════════════════════════════
-var _geminiKey = localStorage.getItem('sr2_geminikey') || '';
-
-function saveGeminiKey() {
-  var val = document.getElementById('gkey-input').value.trim();
-  _geminiKey = val;
-  if (val) localStorage.setItem('sr2_geminikey', val);
-  else localStorage.removeItem('sr2_geminikey');
-  updateGeminiKeyUI();
-  if (val) {
-    document.getElementById('gkey-input').value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + val.slice(-6);
-    addToast('GEMINI', '\uD83D\uDC8E Gemini API \ud0a4 \uc800\uc7a5\ub428 \u2014 \ub2e4\uc74c \uc2a4\uce94\ubd80\ud130 AI \ubd84\uc11d \uc801\uc6a9', true);
-  }
-}
-
-function updateGeminiKeyUI() {
-  var st  = document.getElementById('gkey-status');
-  var inp = document.getElementById('gkey-input');
-  if (!st) return;
-  if (_geminiKey) {
-    st.textContent = '\u2713 AI \ud65c\uc131 (' + '\u2022\u2022\u2022' + _geminiKey.slice(-4) + ')';
-    st.className = 'gkey-status set';
-    if (inp && !inp.value) inp.placeholder = '\ud0a4 \ubcc0\uacbd \uc2dc \uc0c8\ub85c \uc785\ub825\ud558\uc138\uc694';
-  } else {
-    st.textContent = '\ud0a4 \ubbf8\uc124\uc815 \u2014 AI \ubd84\uc11d \ube44\ud65c\uc131';
-    st.className = 'gkey-status unset';
-  }
-}
-
-function buildGeminiPrompt(d, ticker, market) {
-  var dt = ticker.replace(/\.(KS|KQ)$/, '');
-  var label = market === 'kr' ? (d.name||dt)+'('+dt+')' : dt+'('+(d.name||'')+')';
-  var fmtV = function(v) {
-    if (v == null) return 'N/A';
-    return market === 'kr' ? Math.round(v).toLocaleString()+'W' : '$'+v.toFixed(2);
-  };
-  var trendStr = 'range';
-  if (d.closes && d.closes.length >= 20) {
-    var c = d.closes, mid = Math.floor(c.length/2);
-    var fH = Math.max.apply(null,c.slice(0,mid)), sH = Math.max.apply(null,c.slice(mid));
-    var fL = Math.min.apply(null,c.slice(0,mid)), sL = Math.min.apply(null,c.slice(mid));
-    trendStr = (sH>fH&&sL>fL)?'uptrend':(sH<fH&&sL<fL)?'downtrend':'range';
-  }
-  var chartPat  = (d.patterns||[]).filter(function(p){return !p.candle;}).map(function(p){return p.name;}).join(', ')||'none';
-  var candlePat = (d.patterns||[]).filter(function(p){return p.candle;}).map(function(p){return p.name;}).join(', ')||'none';
-  var mktCtx    = d.goldenCross?'bullish':d.aboveMA200?'neutral':'bearish';
-  return 'You are a disciplined rule-based trading system. Be concise and data-driven.\n\n'+
-'Stock: '+label+' | Price: '+fmtV(d.curr)+' | Trend: '+trendStr+'\n'+
-'20MA: '+fmtV(d.sma20)+' | 50MA: '+fmtV(d.sma50)+' | 200MA: '+fmtV(d.sma200)+'\n'+
-'RSI: '+(d.rsi!=null?d.rsi.toFixed(1):'N/A')+
-' | Vol: '+(d.volRatio!=null?d.volRatio.toFixed(1)+'x avg':'N/A')+
-' | 20d run: '+(d.priceRunPct!=null?(d.priceRunPct*100).toFixed(1)+'%':'N/A')+'\n'+
-'Above50MA: '+(d.aboveMA50pct!=null?(d.aboveMA50pct*100).toFixed(1)+'%':'N/A')+
-' | Market: '+mktCtx+' | Internal score: '+(d.score||0)+'/100\n'+
-'Chart patterns: '+chartPat+' | Candle: '+candlePat+'\n\n'+
-'Rules: (1)Trade with trend (2)Volume confirm breakouts (3)R:R>=1:2 (4)No trade if >10% above 50MA (5)Unclear=NO TRADE\n\n'+
-'Respond EXACTLY in this format, no extra text:\n'+
-'DECISION: [STRONG BUY|BUY|WATCH|NO TRADE|SELL]\n'+
-'ENTRY: [price]\nSTOP: [price]\nTP1: [price]\nTP2: [price]\nRR: [e.g. 1:2.5]\n'+
-'CONFIDENCE: [0-100]\n'+
-'REASON: [max 3 bullets, each starting with *]\n'+
-'INVALID: [one-line condition]';
-}
-
-function parseGeminiResponse(text) {
-  var get = function(key) {
-    var m = text.match(new RegExp('^'+key+':\\s*(.+)','im'));
-    return m ? m[1].trim() : null;
-  };
-  var decision = (get('DECISION')||'NO TRADE').toUpperCase().replace(/[^A-Z ]/g,'').trim();
-  var conf     = parseInt(get('CONFIDENCE')||'50',10);
-  var confLbl  = conf>=75?'high':conf>=50?'med':'low';
-  var bullets  = [];
-  var rm = text.match(/^REASON:\s*([\s\S]*?)(?=^INVALID:|$)/im);
-  if (rm) bullets = rm[1].split('\n').map(function(l){return l.replace(/^[\s*\-]+/,'').trim();}).filter(function(l){return l.length>2;}).slice(0,3);
-  var adj = decision.indexOf('STRONG BUY')>=0?+12:decision==='BUY'?+6:decision==='WATCH'?0:decision==='NO TRADE'?-10:-18;
-  return {
-    status:'done', decision:decision, entry:get('ENTRY'), stop:get('STOP'),
-    tp1:get('TP1'), tp2:get('TP2'), rr:get('RR'),
-    confidence:conf, confLabel:confLbl, bullets:bullets,
-    invalid:get('INVALID'), scoreAdj:adj, raw:text,
-  };
-}
-
-function applyGeminiAdjustment(d) {
-  if (!d.gemini || d.gemini.status!=='done') return;
-  var adj = d.gemini.scoreAdj||0;
-  d.score = Math.max(0, Math.min(100, (d.score||0) + adj));
-  if      (d.score>=85) d.signal='strong-buy';
-  else if (d.score>=70) d.signal='buy';
-  else if (d.score>=55) d.signal='watch';
-  else if (d.score>=42) d.signal='hold';
-  else if (d.score>=28) d.signal='sell';
-  else                  d.signal='strong-sell';
-}
-
-function buildGeminiBadge(d) {
-  if (!d || !d.gemini) return '';
-  var g = d.gemini;
-  if (g.status==='loading') return '<div class="gemini-badge gb-loading"><span class="gemini-icon">\uD83D\uDC8E</span><div class="gemini-label d">Gemini \ubd84\uc11d \uc911\u2026</div></div>';
-  if (g.status==='error')   return '<div class="gemini-badge gb-no"><span class="gemini-icon">\uD83D\uDC8E</span><div><div class="gemini-label d">Gemini \uc624\ub958</div><div class="gemini-detail">'+(g.error||'').slice(0,50)+'</div></div></div>';
-  if (g.status!=='done')    return '';
-  var dec=g.decision||'';
-  var cls=dec.indexOf('STRONG BUY')>=0?'gb-strong':dec==='BUY'?'gb-buy':dec==='WATCH'?'gb-watch':dec==='SELL'?'gb-sell':'gb-no';
-  var lc=dec.indexOf('BUY')>=0?'g':dec==='WATCH'?'a':dec==='SELL'?'r':'d';
-  var icon=dec.indexOf('STRONG BUY')>=0?'\uD83D\uDD25':dec==='BUY'?'\u2705':dec==='WATCH'?'\uD83D\uDC40':dec==='SELL'?'\u26A0\uFE0F':'\u26D4';
-  var confHtml='<span class="gemini-conf '+g.confLabel+'">'+g.confidence+'</span>';
-  var rrHtml=g.rr?'<span class="gemini-rr">R:R '+g.rr+'</span>':'';
-  var detail=[];
-  if(g.entry&&g.stop) detail.push('\uc9c4\uc785 '+g.entry+' / \uc190\uc808 '+g.stop);
-  if(g.bullets&&g.bullets[0]) detail.push(g.bullets[0]);
-  return '<div class="gemini-badge '+cls+'">'+
-    '<span class="gemini-icon">\uD83D\uDC8E</span>'+
-    '<div style="flex:1;min-width:0">'+
-      '<div style="display:flex;align-items:center;gap:4px">'+
-        '<span class="gemini-label '+lc+'">'+icon+' Gemini: '+dec+'</span>'+confHtml+
-      '</div>'+
-      (detail.map(function(t){return '<div class="gemini-detail">'+t+'</div>';}).join(''))+
-    '</div>'+rrHtml+'</div>';
-}
-
-async function callGeminiAnalysis(d, ticker, market) {
-  var prompt = buildGeminiPrompt(d, ticker, market);
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+_geminiKey;
-  var res = await fetch(url, {
-    method:'POST',
-    headers:{'content-type':'application/json'},
-    body: JSON.stringify({
-      contents:[{role:'user',parts:[{text:prompt}]}],
-      generationConfig:{temperature:0.1,maxOutputTokens:400},
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) {
-    var ej={}; try{ej=await res.json();}catch(e2){}
-    throw new Error('Gemini '+res.status+(ej.error?': '+ej.error.message:''));
-  }
-  var data=await res.json();
-  var text='';
-  try{text=data.candidates[0].content.parts[0].text.trim();}catch(e){}
-  if(!text) throw new Error('\ube48 \uc751\ub2f5');
-  return parseGeminiResponse(text);
 }
 
 function setFilter(f, btn) {
@@ -3430,7 +3199,7 @@ function showRules() { document.getElementById('rules-modal').classList.add('sho
 let deferredPrompt = null;
 
 // Register service worker
-if ('serviceWorker' in navigator && location.protocol !== 'null:' && location.protocol !== 'file:') {
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     // Derive sw.js path relative to current page
     const swPath = window.location.pathname.replace(/[^/]*$/, '') + 'sw.js';
