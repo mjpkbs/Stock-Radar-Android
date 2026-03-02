@@ -192,6 +192,7 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .pat-conf.high{background:rgba(0,230,118,.15);color:var(--green)}
 .pat-conf.med{background:rgba(255,171,0,.15);color:var(--amber)}
 .pat-conf.low{background:rgba(122,143,170,.15);color:var(--dim2)}
+.pat-item.candle-tag::after{content:'캔들';font-size:8px;padding:1px 5px;border-radius:3px;background:rgba(255,171,0,.15);color:var(--amber);margin-left:5px;vertical-align:middle;letter-spacing:.04em}
 
 .card-actions{display:flex;gap:7px}
 .btn-buy{flex:1;padding:8px;background:var(--green-dim);border:1px solid var(--green);border-radius:5px;color:var(--green);font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;cursor:pointer;transition:all .15s}
@@ -392,6 +393,7 @@ tbody tr.alarm-flash{animation:rowflash .6s ease infinite}
       <button class="fbtn" onclick="setFilter('watch',this)">👀 관찰</button>
       <button class="fbtn" onclick="setFilter('sell',this)">⚠️ 매도경보</button>
       <button class="fbtn" onclick="setFilter('pattern',this)">📐 패턴 감지</button>
+      <button class="fbtn" onclick="setFilter('candle',this)">🕯 캔들 패턴</button>
     </div>
     <div class="screener-grid" id="screener-grid"></div>
   </section>
@@ -743,6 +745,7 @@ async function fetchStockData(ticker) {
 
   const rawQ   = r.indicators.quote[0];
   const closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1] ?? null).filter(v=>v!=null);
+  const opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]  ?? null).filter(v=>v!=null);
   const highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]  ?? null).filter(v=>v!=null);
   const lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]   ?? null).filter(v=>v!=null);
   const volumes = (rawQ.volume || []).filter(v => v != null);
@@ -791,12 +794,17 @@ async function fetchStockData(ticker) {
   const nearMA50 = sma50 && Math.abs((curr - sma50) / sma50) < 0.03;
   const nearMA   = nearMA20 || nearMA50;
 
-  const patterns = detectPatterns(closes, highs, lows, volumes);
+  const chartPatterns  = detectPatterns(closes, highs, lows, volumes);
+  const candlePatterns = detectCandlePatterns(opens, highs, lows, closes, volumes);
+  // Merge: chart patterns first, then candle patterns; dedupe by name
+  const allPatterns = [...chartPatterns, ...candlePatterns]
+    .filter((p, i, arr) => arr.findIndex(q => q.name === p.name) === i);
+  const patterns = allPatterns.sort((a,b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 3);
 
   return { ticker, curr, prev, change, sma20, sma50, sma200,
            rsi, volRatio, priceRunPct, aboveMA50pct,
            goldenCross, nearGolden, deathCross, aboveMA200, aboveMA50, nearMA,
-           closes, highs, lows, patterns };
+           closes, highs, lows, opens, patterns };
 }
 
 
@@ -1139,7 +1147,201 @@ function detectPatterns(closes, highs, lows, volumes) {
 
   // Return only top 2 most significant patterns (avoid noise)
   const sorted = found.sort((a,b) => Math.abs(b.score) - Math.abs(a.score));
-  return sorted.slice(0, 2);
+  return sorted.slice(0, 2); // chart patterns — top 2 (candles merged separately)
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CANDLESTICK PATTERN DETECTION ENGINE
+// Patterns: Engulfing · Pin Bar (Hammer/Shooting Star) ·
+//           Morning/Evening Star · Doji · Hanging Man · Inverted Hammer
+// Uses last 5 candles; requires trend context for reliability
+// ═══════════════════════════════════════════════════════════════════════════
+function detectCandlePatterns(opens, highs, lows, closes, volumes) {
+  const found = [];
+  const n = closes.length;
+  if (n < 5 || opens.length < 5) return found;
+
+  // ── HELPER: candle properties ────────────────────────────────────────────
+  const body   = i => Math.abs(closes[i] - opens[i]);
+  const upper  = i => highs[i]  - Math.max(opens[i], closes[i]);   // upper wick
+  const lower  = i => Math.min(opens[i], closes[i]) - lows[i];      // lower wick
+  const range  = i => highs[i] - lows[i];
+  const isBull = i => closes[i] > opens[i];
+  const isBear = i => closes[i] < opens[i];
+  const mid    = i => (opens[i] + closes[i]) / 2;
+
+  // Average body size over last 14 candles (to judge "large" / "small")
+  const avgBody = closes.slice(-14).reduce((s, c, i, a) => {
+    const idx = n - 14 + i;
+    return s + Math.abs(c - opens[idx]);
+  }, 0) / 14;
+
+  // Short-term trend: compare SMA5 vs SMA20
+  const smaK = k => closes.slice(-k).reduce((a,b)=>a+b,0)/k;
+  const uptrend   = closes.length >= 20 && smaK(5) > smaK(20);
+  const downtrend = closes.length >= 20 && smaK(5) < smaK(20);
+
+  // Latest candle indices
+  const c0 = n - 1;  // today
+  const c1 = n - 2;  // yesterday
+  const c2 = n - 3;  // 2 days ago
+  const volAvg = volumes.slice(-20).reduce((a,b)=>a+b,0) / 20;
+  const volConf = volumes[c0] > volAvg * 1.1;
+
+  // ── BULLISH ENGULFING ────────────────────────────────────────────────────
+  // Yesterday: bearish candle. Today: bullish candle that fully engulfs yesterday's body.
+  if (
+    isBear(c1) && isBull(c0) &&
+    opens[c0]  <= closes[c1] &&   // today opens at or below yesterday's close
+    closes[c0] >= opens[c1]  &&   // today closes at or above yesterday's open
+    body(c0) > body(c1) * 0.9     // today's body is clearly larger
+  ) {
+    found.push({
+      name: '강세 장악형 (Bullish Engulfing)',
+      type: 'buy',
+      icon: '🟢',
+      desc: `전일 음봉을 양봉이 완전히 감쌈 — 강한 매수세 전환 신호${volConf ? ' · 거래량 확인 ✓' : ''}`,
+      score: downtrend ? +10 : +7,   // stronger signal if it appears in a downtrend
+      conf:  downtrend && volConf ? 'high' : volConf ? 'med' : 'low',
+      candle: true,
+    });
+  }
+
+  // ── BEARISH ENGULFING ────────────────────────────────────────────────────
+  // Yesterday: bullish. Today: bearish that engulfs yesterday's body.
+  if (
+    isBull(c1) && isBear(c0) &&
+    opens[c0]  >= closes[c1] &&
+    closes[c0] <= opens[c1]  &&
+    body(c0) > body(c1) * 0.9
+  ) {
+    found.push({
+      name: '약세 장악형 (Bearish Engulfing)',
+      type: 'sell',
+      icon: '🔴',
+      desc: `전일 양봉을 음봉이 완전히 감쌈 — 강한 매도세 전환 신호${volConf ? ' · 거래량 확인 ✓' : ''}`,
+      score: uptrend ? -10 : -7,
+      conf:  uptrend && volConf ? 'high' : volConf ? 'med' : 'low',
+      candle: true,
+    });
+  }
+
+  // ── HAMMER (Bullish Pin Bar) ─────────────────────────────────────────────
+  // Small body at top, long lower wick (≥ 2× body), tiny upper wick.
+  // Best in downtrend — signals buyers stepping in.
+  if (
+    range(c0) > 0 &&
+    lower(c0) >= body(c0) * 2 &&    // lower wick ≥ 2× body
+    upper(c0) <= body(c0) * 0.5 &&  // tiny upper wick
+    body(c0) <= avgBody * 1.2        // not a huge candle
+  ) {
+    const isBullish = closes[c0] >= opens[c0];
+    found.push({
+      name: isBullish ? '망치형 (Bullish Hammer)' : '교수형 (Hanging Man)',
+      type: downtrend || isBullish ? 'buy' : 'warn',
+      icon: downtrend ? '🟢' : '🟡',
+      desc: downtrend
+        ? `하락 추세 중 긴 아래꼬리 형성 — 저점 매수세 유입, 반등 가능성`
+        : `상승 추세 중 망치형 출현 — ${isBullish ? '지지 확인' : '매달린 사람형 (하락 경고)'}`,
+      score: downtrend ? +9 : (isBullish ? +4 : -5),
+      conf: downtrend ? 'med' : 'low',
+      candle: true,
+    });
+  }
+
+  // ── SHOOTING STAR (Bearish Pin Bar) ──────────────────────────────────────
+  // Small body at bottom, long upper wick (≥ 2× body), tiny lower wick.
+  // Best in uptrend — signals sellers taking control.
+  if (
+    range(c0) > 0 &&
+    upper(c0) >= body(c0) * 2 &&    // long upper wick
+    lower(c0) <= body(c0) * 0.5 &&  // tiny lower wick
+    body(c0) <= avgBody * 1.2
+  ) {
+    found.push({
+      name: uptrend ? '유성형 (Shooting Star)' : '역망치형 (Inverted Hammer)',
+      type: uptrend ? 'sell' : 'watch',
+      icon: uptrend ? '🔴' : '🔵',
+      desc: uptrend
+        ? `상승 추세 중 긴 위꼬리 형성 — 고점 매도세 강함, 하락 전환 경고`
+        : `하락 추세 중 역망치 출현 — 매수 시도 흔적, 다음 봉 확인 필요`,
+      score: uptrend ? -9 : +4,
+      conf: uptrend ? 'med' : 'low',
+      candle: true,
+    });
+  }
+
+  // ── MORNING STAR (3-candle Bullish Reversal) ──────────────────────────────
+  // c2: large bearish candle
+  // c1: small body (star) — gap down, can be bull or bear
+  // c0: large bullish candle closing above midpoint of c2's body
+  if (
+    isBear(c2) && body(c2) >= avgBody * 0.8 &&     // large bear candle
+    body(c1) <= body(c2) * 0.4 &&                   // small star body
+    Math.min(opens[c1], closes[c1]) < closes[c2] && // star below c2's close
+    isBull(c0) && body(c0) >= avgBody * 0.8 &&      // large bull candle
+    closes[c0] >= mid(c2)                            // closes above c2 midpoint
+  ) {
+    found.push({
+      name: '샛별형 (Morning Star)',
+      type: 'buy',
+      icon: '🌟',
+      desc: `대형 음봉 → 소형 별 → 대형 양봉 — 강력한 3봉 바닥 반전 신호${volConf ? ' · 거래량 급증 ✓' : ''}`,
+      score: +13,
+      conf: 'high',
+      candle: true,
+    });
+  }
+
+  // ── EVENING STAR (3-candle Bearish Reversal) ──────────────────────────────
+  // c2: large bullish candle
+  // c1: small body star — gap up
+  // c0: large bearish candle closing below midpoint of c2's body
+  if (
+    isBull(c2) && body(c2) >= avgBody * 0.8 &&
+    body(c1) <= body(c2) * 0.4 &&
+    Math.max(opens[c1], closes[c1]) > closes[c2] && // star above c2's close
+    isBear(c0) && body(c0) >= avgBody * 0.8 &&
+    closes[c0] <= mid(c2)                            // closes below c2 midpoint
+  ) {
+    found.push({
+      name: '석별형 (Evening Star)',
+      type: 'sell',
+      icon: '🌆',
+      desc: `대형 양봉 → 소형 별 → 대형 음봉 — 강력한 3봉 천장 반전 신호${volConf ? ' · 거래량 확인 ✓' : ''}`,
+      score: -13,
+      conf: 'high',
+      candle: true,
+    });
+  }
+
+  // ── DOJI ─────────────────────────────────────────────────────────────────
+  // Body ≤ 10% of range — open ≈ close → market indecision
+  if (
+    range(c0) > 0 &&
+    body(c0) <= range(c0) * 0.1 &&
+    body(c0) <= avgBody * 0.3
+  ) {
+    const dojiType = upper(c0) > lower(c0) * 2 ? '비석형 도지 (Gravestone)' :
+                     lower(c0) > upper(c0) * 2 ? '잠자리형 도지 (Dragonfly)'  : '도지 (Doji)';
+    const dojiScore = uptrend ? -4 : downtrend ? +4 : 0;
+    found.push({
+      name: dojiType,
+      type: 'watch',
+      icon: '⚖️',
+      desc: `시가 ≈ 종가 — 매수/매도 세력 균형 · ${uptrend ? '상승 추세 소진 경고' : downtrend ? '하락 추세 소진 / 반등 가능' : '방향성 확인 필요'}`,
+      score: dojiScore,
+      conf: 'low',
+      candle: true,
+    });
+  }
+
+  // ── INVERTED HAMMER (downtrend only — differs from Shooting Star) ─────────
+  // Already handled above in Shooting Star block (type: watch if downtrend)
+
+  // Return best 2 candle patterns by absolute score
+  return found.sort((a,b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 2);
 }
 
 // ═══════════════════════════════════════════════
@@ -1252,7 +1454,7 @@ function getSignal(d) {
   let patternBonus = 0;
   if (d.patterns && d.patterns.length > 0) {
     patternBonus = d.patterns.reduce((s, p) => s + (p.score || 0), 0);
-    patternBonus = Math.max(-15, Math.min(15, patternBonus));
+    patternBonus = Math.max(-20, Math.min(20, patternBonus));
     d.patterns.forEach(p => {
       reasons.push({ text: `${p.icon} ${p.name}`, t: p.type === 'buy' || p.type === 'watch' ? 'g' : 'w' });
     });
@@ -1435,6 +1637,7 @@ function finalRender(market) {
     const f = currentFilter;
     if (f === 'sell') items = items.filter(d => d.signal === 'sell' || d.signal === 'strong-sell');
     else if (f === 'pattern') items = items.filter(d => d.patterns && d.patterns.length > 0);
+    else if (f === 'candle')  items = items.filter(d => d.patterns && d.patterns.some(p => p.candle));
     else items = items.filter(d => d.signal === f);
   }
   grid.innerHTML = items.length
@@ -1494,7 +1697,7 @@ function buildCard(d, market) {
   // Build pattern panel HTML
   const patternHtml = (d.patterns && d.patterns.length > 0)
     ? `<div class="pattern-panel">${d.patterns.map(p => `
-        <div class="pat-item ${p.type}">
+        <div class="pat-item ${p.type}${p.candle?' candle-tag':''}">
           <div class="pat-name">${p.icon} ${p.name}<span class="pat-conf ${p.conf}">${{high:'고신뢰',med:'중신뢰',low:'저신뢰'}[p.conf]}</span></div>
           <div class="pat-desc">${p.desc}</div>
         </div>`).join('')}</div>`
