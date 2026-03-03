@@ -993,6 +993,11 @@ const RULES = {
   maxSectorPct:   0.25,     // R19: max 25% per sector
   maxPositionPct: 0.10,     // R19: max 10% per stock
   pollInterval:   5 * 60 * 1000,
+  // ── SMART SCAN SCHEDULING ──────────────────
+  preMarketMinutes: 15,        // 장 시작 N분 전 프리로드
+  liveQuoteInterval: 60*1000,  // 장중 시세 갱신 주기 (1분)
+  fullScanInterval:  30*60*1000, // 장중 풀스캔 주기 (30분)
+  offHourInterval:   60*60*1000, // 장 마감 후 스캔 주기 (1시간)
   // ── performance ─────────────────────────────
   scanConcurrency: 6,        // 동시 요청 수 (높이면 빨라지지만 프록시/레이트리밋 위험)
   useRealtimeQuotes: true,   // 장중일 때만 v7/quote 사용 (장 마감 시 자동으로 안 씀)
@@ -1247,17 +1252,188 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSkeletons();
   renderPortfolio();
   renderLog();
-  updateMarketRegime(); // fetch SPY + KODEX200 for regime
-  autoUpdateOutcomes(); // auto-fetch outcomes for past signals
-  renderStrategyBTPanel(activeMarket); // show cached strategy BT if available
+  updateMarketRegime();
+  autoUpdateOutcomes();
+  renderStrategyBTPanel(activeMarket);
+  // ── Initial full scan ──────────────────────────────────────────────────
   runScreener();
-  pollTimer = setInterval(() => {
-    runScreener(true);
-    updatePortfolio(true);
-    updateMarketRegime();
-    autoUpdateOutcomes();
-  }, RULES.pollInterval);
+  // ── Smart Scheduler: adapts polling based on market hours ──────────────
+  startSmartScheduler();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SMART SCAN SCHEDULER
+// Instead of fixed 5-min polling, adapts to market state:
+//  ● 장 시작 15분 전 → 프리로드 (차트 캐시 워밍, 1회)
+//  ● 장중 → 시세만 경량 갱신 (1분), 풀스캔 (30분)
+//  ● 장 마감 후 → 풀스캔 (1시간)
+//  ● 미장/국장 동시 감지 → 해당 시장만 갱신
+// ═══════════════════════════════════════════════════════════════════════════
+let _schedulerTimer = null;
+let _preloadDone = { us: false, kr: false }; // 장 시작 전 프리로드 완료 여부
+let _lastFullScan = { us: 0, kr: 0 };
+let _lastQuoteRefresh = 0;
+
+function startSmartScheduler() {
+  // Check every 30 seconds what to do
+  _schedulerTimer = setInterval(schedulerTick, 30 * 1000);
+  // Also run once immediately (after initial scan is queued)
+  setTimeout(schedulerTick, 10 * 1000);
+}
+
+function schedulerTick() {
+  const now = Date.now();
+  const usOpen = isUSOpen();
+  const krOpen = isKROpen();
+
+  // ── Reset preload flags at midnight KST ──────────────────────────────
+  const kstH = new Date().toLocaleString('en-US', {timeZone:'Asia/Seoul', hour:'numeric', hour12:false});
+  if (parseInt(kstH) === 0) {
+    _preloadDone.us = false;
+    _preloadDone.kr = false;
+  }
+
+  // ── PRE-MARKET PRELOAD ───────────────────────────────────────────────
+  // KR: 08:45~09:00 KST → preload KR charts
+  if (!_preloadDone.kr && isNearKROpen()) {
+    _preloadDone.kr = true;
+    console.log('[Scheduler] KR pre-market preload starting');
+    preloadCharts('kr');
+  }
+  // US: 09:15~09:30 ET (= 23:15~23:30 KST, or 22:15 during DST) → preload US charts
+  if (!_preloadDone.us && isNearUSOpen()) {
+    _preloadDone.us = true;
+    console.log('[Scheduler] US pre-market preload starting');
+    preloadCharts('us');
+  }
+
+  // ── DURING MARKET HOURS ──────────────────────────────────────────────
+  // Full scan if enough time has passed
+  if (usOpen && (now - _lastFullScan.us > RULES.fullScanInterval)) {
+    _lastFullScan.us = now;
+    if (activeMarket === 'us') {
+      console.log('[Scheduler] US live full scan');
+      runScreener(true);
+    }
+  }
+  if (krOpen && (now - _lastFullScan.kr > RULES.fullScanInterval)) {
+    _lastFullScan.kr = now;
+    if (activeMarket === 'kr') {
+      console.log('[Scheduler] KR live full scan');
+      runScreener(true);
+    }
+  }
+
+  // Light quote refresh (just prices, no chart re-fetch) during market hours
+  if ((usOpen || krOpen) && (now - _lastQuoteRefresh > RULES.liveQuoteInterval)) {
+    _lastQuoteRefresh = now;
+    refreshLiveQuotes();
+  }
+
+  // ── OFF HOURS ────────────────────────────────────────────────────────
+  if (!usOpen && !krOpen) {
+    const mkt = activeMarket;
+    if (now - _lastFullScan[mkt] > RULES.offHourInterval) {
+      _lastFullScan[mkt] = now;
+      // Off-hours: just update portfolio, don't full-scan (data won't change)
+      updatePortfolio(true);
+      autoUpdateOutcomes();
+      updateMarketRegime();
+    }
+  }
+}
+
+// ── Pre-market time detection ──────────────────────────────────────────
+function isNearKROpen() {
+  // 08:45~09:00 KST
+  const kst = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Seoul'}));
+  const m = kst.getHours() * 60 + kst.getMinutes();
+  return m >= 525 && m < 540; // 8:45~9:00
+}
+
+function isNearUSOpen() {
+  // 09:15~09:30 ET
+  const et = new Date(new Date().toLocaleString('en-US', {timeZone:'America/New_York'}));
+  const m = et.getHours() * 60 + et.getMinutes();
+  return m >= 555 && m < 570; // 9:15~9:30
+}
+
+// ── Preload: warm chart cache for all tickers in a market ──────────────
+async function preloadCharts(market) {
+  const statusEl = document.getElementById('scan-status');
+  if (statusEl) {
+    statusEl.textContent = `${market === 'kr' ? '🇰🇷 국장' : '🇺🇸 미장'} 프리로드 중...`;
+    statusEl.style.color = 'var(--blue)';
+  }
+
+  // Build ticker list from watchlist + screener pools
+  const tickers = new Set();
+  (WATCHLISTS[market] || []).forEach(s => tickers.add(s.ticker));
+  const pools = market === 'kr' ? KR_SCREENER_POOLS : US_SCREENER_POOLS;
+  Object.values(pools).forEach(arr => arr.forEach(t => tickers.add(t)));
+
+  const toFetch = [...tickers].filter(t => !isChartCacheFresh(t));
+  if (toFetch.length === 0) {
+    console.log(`[Preload] ${market} all ${tickers.size} tickers already cached`);
+    if (statusEl) { statusEl.textContent = '프리로드 완료 (캐시 히트)'; statusEl.style.color = 'var(--green)'; }
+    return;
+  }
+
+  console.log(`[Preload] ${market}: ${toFetch.length}/${tickers.size} tickers need fetch`);
+  let done = 0;
+  await asyncPool(toFetch, 4, async (ticker) => {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
+      const data = await fetchWithProxy(url);
+      if (data?.chart?.result?.[0]) {
+        setChartCache(ticker, data);
+      }
+    } catch(e) { /* skip */ }
+    done++;
+    if (statusEl && done % 5 === 0) {
+      statusEl.textContent = `프리로드 ${done}/${toFetch.length}...`;
+    }
+  });
+
+  if (statusEl) {
+    statusEl.textContent = `프리로드 완료 (${done}개 캐시)`;
+    statusEl.style.color = 'var(--green)';
+  }
+  console.log(`[Preload] ${market} done: ${done} charts cached`);
+}
+
+// ── Light quote refresh: update prices without re-fetching full charts ──
+async function refreshLiveQuotes() {
+  const m = activeMarket;
+  const data = screenerData[m];
+  if (!data || Object.keys(data).length === 0) return;
+
+  const tickers = Object.keys(data).filter(t => !data[t].error);
+  if (tickers.length === 0) return;
+
+  // Batch fetch lightweight 5d charts for current prices
+  const batchQ = await fetchBatchQuotes(tickers);
+  let updated = 0;
+
+  for (const ticker of tickers) {
+    const q = batchQ[ticker];
+    if (q && q.price != null && data[ticker]) {
+      data[ticker].curr = q.price;
+      data[ticker].change = q.changePct;
+      if (q.volume) data[ticker].volume = q.volume;
+      updated++;
+    }
+  }
+
+  if (updated > 0) {
+    finalRender(m);
+    const statusEl = document.getElementById('scan-status');
+    if (statusEl) {
+      statusEl.textContent = `시세 갱신 ${updated}개 (${kstNow()})`;
+      statusEl.style.color = 'var(--green)';
+    }
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AUTO-OUTCOME TRACKER
@@ -3707,7 +3883,8 @@ async function runScreener(silent = false) {
     document.getElementById('progress-bar').style.display = 'none';
     document.getElementById('refresh-btn').disabled = false;
   }
-  document.getElementById('last-scan').textContent = kstNow();
+  const schedMode = (isUSOpen() || isKROpen()) ? '장중·30분' : '장외·1시간';
+  document.getElementById('last-scan').textContent = kstNow() + ` (${schedMode})`;
   document.getElementById('scan-status').textContent = `${buyCnt}개 매수 기회 발견`;
   document.getElementById('scan-status').style.color = buyCnt > 0 ? 'var(--green)' : 'var(--text2)';
   document.getElementById('scan-total').textContent = wl.length;
