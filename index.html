@@ -953,8 +953,73 @@ async function fetchWithProxy(url) {
   throw new Error('데이터 로드 실패');
 }
 
-// ── 실시간 현재가 전용 fetch (v7/finance/quote) ─────────────────────────────
-// v8/finance/chart의 meta보다 현재가 업데이트가 빠름 — 특히 한국 주식에서 차이남
+// ── 텍스트 응답 전용 proxy (Naver fchart 등 non-JSON API) ─────────────────
+async function fetchWithProxyText(url) {
+  const sep = url.includes('?') ? '&' : '?';
+  const bustUrl = url + sep + '_=' + Math.floor(Date.now() / 30000);
+  for (let i = 0; i < PROXIES.length; i++) {
+    const idx = (proxyIdx + i) % PROXIES.length;
+    try {
+      const res = await fetch(PROXIES[idx] + encodeURIComponent(bustUrl), {
+        signal: AbortSignal.timeout(12000),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      proxyIdx = idx;
+      return await res.text();
+    } catch(e) { /* try next */ }
+  }
+  throw new Error('텍스트 로드 실패');
+}
+
+// ── 네이버 금융 실시간 현재가 ────────────────────────────────────────────────
+// m.stock.naver.com/api/stock/{code}/integration — 장중 실시간, 장 마감 후 종가
+async function fetchNaverRealtime(code) {
+  const url = `https://m.stock.naver.com/api/stock/${code}/integration`;
+  try {
+    const data = await fetchWithProxy(url);
+    const d = data?.stockItemDetailResponse;
+    if (!d || d.closePrice == null) return null;
+    const p = s => parseFloat((String(s) || '0').replace(/,/g, ''));
+    return {
+      price:     p(d.closePrice),
+      prevClose: p(d.compareToPreviousPrice != null
+                    ? p(d.closePrice) - p(d.compareToPreviousPrice)
+                    : d.previousClosePrice ?? 0),
+      changePct: parseFloat(d.fluctuationsRatio ?? 0),
+      volume:    p(d.accumulatedTradingVolume ?? 0),
+      time:      new Date(),
+    };
+  } catch(e) { return null; }
+}
+
+// ── 네이버 금융 OHLCV 히스토리 ───────────────────────────────────────────────
+// fchart.stock.naver.com — 최대 260일치 일봉 (지표 계산용)
+// 응답 포맷 (파이프 구분): |YYYYMMDD|시가|고가|저가|종가|거래량
+async function fetchNaverHistory(code) {
+  const url = `https://fchart.stock.naver.com/sise.nhn?symbol=${code}&timeframe=day&count=260&requestType=0`;
+  try {
+    const text = await fetchWithProxyText(url);
+    const closes = [], opens = [], highs = [], lows = [], volumes = [];
+    for (const line of text.split('\n')) {
+      const p = line.trim().split('|');
+      // 파이프 앞뒤 빈 원소 있어서 최소 7개 필요: ['', date, o, h, l, c, v]
+      if (p.length < 7) continue;
+      const c = parseFloat(p[5]);
+      if (!c || isNaN(c)) continue;
+      opens.push(parseFloat(p[2])   || c);
+      highs.push(parseFloat(p[3])   || c);
+      lows.push(parseFloat(p[4])    || c);
+      closes.push(c);
+      volumes.push(parseInt(p[6])   || 0);
+    }
+    if (closes.length < 20) return null;
+    return { closes, opens, highs, lows, volumes };
+  } catch(e) { return null; }
+}
+
+// ── 미장 실시간 현재가 전용 fetch (v7/finance/quote) ─────────────────────────
+// v8/finance/chart의 meta보다 현재가 업데이트가 빠름
 async function fetchRealtimeQuote(ticker) {
   const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + ticker
             + '&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketVolume,regularMarketTime';
@@ -975,42 +1040,77 @@ async function fetchRealtimeQuote(ticker) {
 }
 
 async function fetchStockData(ticker) {
-  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
+  const isKR = /\.(KS|KQ)$/i.test(ticker);
 
-  // v7/quote (실시간) + v8/chart (히스토리) 병렬 호출 — 둘 중 더 최신 가격 사용
-  const [data, rtQuote] = await Promise.all([
-    fetchWithProxy(chartUrl),
-    fetchRealtimeQuote(ticker),   // 별도 엔드포인트로 현재가 직접 조회
-  ]);
+  let closes, opens, highs, lows, volumes;
+  let rtPrice, rtPrevClose, rtVolume, rtTime, priceSource, isRealtime;
 
-  const r = data?.chart?.result?.[0];
-  if (!r) throw new Error('데이터 없음');
+  if (isKR) {
+    // ── 🇰🇷 한국 주식: 네이버 금융 ────────────────────────────────────────
+    const code = ticker.replace(/\.(KS|KQ)$/i, '');
 
-  const rawQ   = r.indicators.quote[0];
-  const closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1] ?? null).filter(v=>v!=null);
-  const opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]  ?? null).filter(v=>v!=null);
-  const highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]  ?? null).filter(v=>v!=null);
-  const lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]   ?? null).filter(v=>v!=null);
-  const volumes = (rawQ.volume || []).filter(v => v != null);
+    // 실시간 현재가(네이버) + 히스토리(네이버 fchart) 병렬 호출
+    const [naverRt, naverHist] = await Promise.all([
+      fetchNaverRealtime(code),
+      fetchNaverHistory(code),
+    ]);
 
-  // ── 실시간 가격 결정 로직 ───────────────────────────────────────────────
-  // 우선순위: v7/quote (더 실시간) > v8/chart meta > 히스토리 마지막 봉
-  const chartMetaPrice    = r.meta.regularMarketPrice ?? null;
-  const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
-  const chartMetaVolume   = r.meta.regularMarketVolume ?? null;
+    if (!naverHist || naverHist.closes.length < 5) {
+      throw new Error(`네이버 데이터 없음 (${code})`);
+    }
 
-  // v7/quote가 성공했고 가격이 있으면 최우선 사용
-  const rtPrice    = rtQuote?.price ?? chartMetaPrice ?? closes.at(-1);
-  const rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
-  const rtVolume   = rtQuote?.volume ?? chartMetaVolume ?? volumes.at(-1);
-  const rtTime     = rtQuote?.time ?? null;
+    closes  = naverHist.closes;
+    opens   = naverHist.opens;
+    highs   = naverHist.highs;
+    lows    = naverHist.lows;
+    volumes = naverHist.volumes;
 
-  // 가격 소스 추적 (카드에 표시용)
-  const priceSource = rtQuote?.price != null ? 'quote'    // v7/quote 성공
-                    : chartMetaPrice != null  ? 'meta'     // v8/chart meta
-                    : 'historical';                         // 히스토리 fallback
+    // 가격 소스 결정
+    if (naverRt?.price) {
+      rtPrice    = naverRt.price;
+      rtPrevClose = naverRt.prevClose || closes.at(-2);
+      rtVolume   = naverRt.volume  || volumes.at(-1);
+      rtTime     = naverRt.time;
+      priceSource = 'naver';    // 네이버 실시간
+    } else {
+      // 네이버 실시간 실패 → fchart 마지막 봉 사용
+      rtPrice    = closes.at(-1);
+      rtPrevClose = closes.at(-2);
+      rtVolume   = volumes.at(-1);
+      rtTime     = null;
+      priceSource = 'historical';
+    }
 
-  const isRealtime = priceSource !== 'historical';
+  } else {
+    // ── 🇺🇸 미국 주식: Yahoo Finance ────────────────────────────────────────
+    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
+    const [data, rtQuote] = await Promise.all([
+      fetchWithProxy(chartUrl),
+      fetchRealtimeQuote(ticker),
+    ]);
+
+    const r = data?.chart?.result?.[0];
+    if (!r) throw new Error('Yahoo 데이터 없음');
+
+    const rawQ = r.indicators.quote[0];
+    closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1]  ?? null).filter(v=>v!=null);
+    opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]   ?? null).filter(v=>v!=null);
+    highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]   ?? null).filter(v=>v!=null);
+    lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]    ?? null).filter(v=>v!=null);
+    volumes = (rawQ.volume || []).filter(v => v != null);
+
+    const chartMetaPrice    = r.meta.regularMarketPrice ?? null;
+    const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
+    const chartMetaVolume   = r.meta.regularMarketVolume ?? null;
+
+    rtPrice    = rtQuote?.price    ?? chartMetaPrice    ?? closes.at(-1);
+    rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
+    rtVolume   = rtQuote?.volume   ?? chartMetaVolume   ?? volumes.at(-1);
+    rtTime     = rtQuote?.time ?? null;
+    priceSource = rtQuote?.price != null ? 'quote' : chartMetaPrice != null ? 'meta' : 'historical';
+  }
+
+  isRealtime = priceSource !== 'historical';
 
   // 실시간 가격으로 closes/volumes 마지막 값 교체 → 모든 지표가 최신 가격 반영
   if (isRealtime && closes.length > 0) {
@@ -1203,8 +1303,9 @@ async function fetchStockData(ticker) {
     pattern: dataLen >= 60,    // 차트 패턴 (60일 필요)
     candle:  dataLen >= 5,     // 캔들 패턴
     realtime: isRealtime,      // 실시간 가격 여부
-    priceSource,               // 'quote' | 'meta' | 'historical'
+    priceSource,               // 'naver' | 'quote' | 'meta' | 'historical'
     rtTime,                    // 마지막 체결 시각
+    isKR: /\.(KS|KQ)$/i.test(ticker), // 한국 주식 여부
     // 전체 신뢰도 등급
     grade: dataLen >= 200 ? 'A' : dataLen >= 100 ? 'B' : dataLen >= 60 ? 'C' : 'D',
     // 신뢰도 설명
@@ -2402,25 +2503,20 @@ function buildCard(d, market) {
     const rtTimeStr = cov.rtTime
       ? cov.rtTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' })
       : null;
-    const rtBadge = cov.priceSource === 'quote'
-      ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
-           background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);
-           margin-left:5px" title="v7/finance/quote — 가장 최신 가격">
-           <span style="display:inline-block;width:5px;height:5px;border-radius:50%;
-             background:var(--green);margin-right:3px;vertical-align:middle;
-             animation:dotpulse 1.4s ease infinite"></span>실시간${rtTimeStr ? ' ' + rtTimeStr : ''}
-         </span>`
-      : cov.priceSource === 'meta'
-      ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
-           background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);
-           margin-left:5px" title="v8/finance/chart meta — quote 실패, chart meta 사용">
-           ⏱ 준실시간
-         </span>`
-      : `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
-           background:rgba(255,61,90,.1);color:var(--red);border:1px solid rgba(255,61,90,.3);
-           margin-left:5px" title="실시간 조회 실패 — 전일 종가 표시 중">
-           ✗ 전일종가
-         </span>`;
+    const srcLabel = {
+      naver:      ['var(--green)',  'rgba(0,230,118,.1)',  'rgba(0,230,118,.3)',  '●', `네이버 실시간${rtTimeStr ? ' ' + rtTimeStr : ''}`],
+      quote:      ['var(--green)',  'rgba(0,230,118,.1)',  'rgba(0,230,118,.3)',  '●', `Yahoo 실시간${rtTimeStr ? ' ' + rtTimeStr : ''}`],
+      meta:       ['var(--amber)',  'rgba(255,171,0,.1)',  'rgba(255,171,0,.3)',  '⏱', '준실시간'],
+      historical: ['var(--red)',    'rgba(255,61,90,.1)',  'rgba(255,61,90,.3)',  '✗', '전일종가'],
+    }[cov.priceSource] ?? ['var(--dim2)', 'transparent', 'var(--border)', '?', '알수없음'];
+    const [srcColor, srcBg, srcBdr, srcIcon, srcText] = srcLabel;
+    const isLive = cov.priceSource === 'naver' || cov.priceSource === 'quote';
+    const rtBadge = `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
+        background:${srcBg};color:${srcColor};border:1px solid ${srcBdr};margin-left:5px">
+        ${isLive ? `<span style="display:inline-block;width:5px;height:5px;border-radius:50%;
+          background:${srcColor};margin-right:3px;vertical-align:middle;
+          animation:dotpulse 1.4s ease infinite"></span>` : srcIcon + ' '}${srcText}
+      </span>`;
 
     // 데이터 등급 배지
     const badge = `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
@@ -2444,9 +2540,9 @@ function buildCard(d, market) {
          </div>`
       : cov.priceSource === 'meta'
       ? `<div style="margin-top:4px;font-size:9px;color:var(--amber)">
-           ⏱ quote API 실패 — chart meta 가격 사용 중 (수 분 지연 가능)
+           ⏱ Yahoo chart meta 가격 사용 중 (수 분 지연 가능)
          </div>`
-      : '';
+      : '';  // naver / quote → 정상, 경고 없음
 
     // 신호 신뢰도 경고
     const reliabilityHtml = !d.signalReliable
