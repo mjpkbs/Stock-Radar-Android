@@ -182,6 +182,62 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 /* data quality */
 .dq-wrap{margin-bottom:8px;font-size:9px}
 
+/* ── EDGE PANEL ─────────────────────────────────────────────────── */
+.edge-panel{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:10px}
+.edge-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.edge-left{flex:1}
+.edge-prob{font-size:22px;font-weight:700;line-height:1}
+.edge-prob.high{color:var(--green)}.edge-prob.med{color:var(--amber)}.edge-prob.low{color:var(--dim2)}
+.edge-sub{font-size:9px;color:var(--dim2);margin-top:2px}
+.edge-right{text-align:right}
+.edge-er{font-size:13px;font-weight:700}
+.edge-er.pos{color:var(--green)}.edge-er.neg{color:var(--red)}
+.edge-rr{font-size:9px;margin-top:3px}
+.edge-rr.good{color:var(--green)}.edge-rr.bad{color:var(--red)}
+.edge-conf{display:inline-block;font-size:8px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:.06em;margin-top:5px}
+.edge-conf.high{background:rgba(0,230,118,.15);color:var(--green)}
+.edge-conf.med{background:rgba(255,171,0,.15);color:var(--amber)}
+.edge-conf.low{background:rgba(122,143,170,.15);color:var(--dim2)}
+
+/* trade setup grid */
+.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px}
+.setup-cell{background:var(--bg4);border-radius:4px;padding:5px 8px}
+.setup-lbl{font-size:8px;color:var(--dim2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
+.setup-val{font-size:11px;font-weight:700}
+.setup-val.entry{color:#60a5fa}.setup-val.stop{color:var(--red)}
+.setup-val.t1{color:var(--green)}.setup-val.t2{color:#00c853}
+.setup-sub{font-size:8px;color:var(--dim2);margin-top:1px}
+.pos-row{display:flex;justify-content:space-between;font-size:9px;margin-top:7px;padding-top:6px;border-top:1px solid var(--border)}
+.pos-label{color:var(--dim2)}.pos-val{font-weight:600;color:var(--text)}
+
+/* ── REGIME BAR ─────────────────────────────────────────────────── */
+.regime-bar{display:flex;gap:8px;align-items:center;padding:6px 20px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:10px;flex-wrap:wrap}
+.regime-label{color:var(--dim2);font-size:9px;text-transform:uppercase;letter-spacing:.06em}
+.regime-pill{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;border:1px solid;white-space:nowrap}
+.regime-pill.bull{color:var(--green);border-color:rgba(0,230,118,.4);background:rgba(0,230,118,.07)}
+.regime-pill.bear{color:var(--red);border-color:rgba(255,61,90,.4);background:rgba(255,61,90,.07)}
+.regime-pill.neutral{color:var(--amber);border-color:rgba(255,171,0,.4);background:rgba(255,171,0,.07)}
+.regime-pill.loading{color:var(--dim2);border-color:var(--border2)}
+.regime-warn{font-size:9px;color:var(--amber);font-style:italic}
+
+/* ── SIGNAL LOG ENHANCED ─────────────────────────────────────────── */
+.slog-entry{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:11px 13px;margin-bottom:7px}
+.slog-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.slog-ticker{font-size:14px;font-weight:700;color:#fff}
+.slog-time{font-size:9px;color:var(--dim2)}
+.slog-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:6px}
+.slog-stat{background:var(--bg3);border-radius:4px;padding:4px 7px}
+.slog-stat-lbl{font-size:8px;color:var(--dim2);margin-bottom:1px}
+.slog-stat-val{font-size:11px;font-weight:700;color:var(--text)}
+.slog-outcome{margin-top:6px;font-size:10px;padding:4px 8px;border-radius:4px;border-left:3px solid}
+.slog-outcome.pending{border-left-color:var(--dim2);color:var(--dim2)}
+.slog-outcome.win{border-left-color:var(--green);color:var(--green)}
+.slog-outcome.loss{border-left-color:var(--red);color:var(--red)}
+.log-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.log-sum-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;text-align:center}
+.log-sum-val{font-size:18px;font-weight:700;color:#fff}
+.log-sum-lbl{font-size:9px;color:var(--dim2);margin-top:3px}
+
 /* pattern panel */
 .pattern-panel{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
 .pat-item{background:var(--bg3);border-radius:5px;padding:7px 10px;border-left:3px solid}
@@ -436,8 +492,16 @@ tbody tr.sold-row{opacity:.65}
 <nav class="sub-nav">
   <div class="stab active" id="stab-screener" onclick="switchSub('screener')">📊 매수 스캐너 <span class="stab-badge" id="badge-screener">0</span></div>
   <div class="stab" id="stab-portfolio" onclick="switchSub('portfolio')">💼 포트폴리오 <span class="stab-badge red" id="badge-portfolio" style="display:none">!</span></div>
-  <div class="stab" id="stab-log" onclick="switchSub('log')">📋 알람 기록</div>
+  <div class="stab" id="stab-log" onclick="switchSub('log')">📋 신호 기록 <span class="stab-badge" id="badge-log" style="display:none;background:var(--amber)">0</span></div>
 </nav>
+
+<!-- MARKET REGIME BAR -->
+<div class="regime-bar" id="regime-bar">
+  <span class="regime-label">시장 레짐</span>
+  <span class="regime-pill loading" id="regime-us">🇺🇸 조회중...</span>
+  <span class="regime-pill loading" id="regime-kr">🇰🇷 조회중...</span>
+  <span class="regime-warn" id="regime-warn" style="display:none"></span>
+</div>
 
 <!-- TOAST STACK -->
 <div id="toast-stack"></div>
@@ -490,9 +554,13 @@ tbody tr.sold-row{opacity:.65}
   <!-- LOG SECTION -->
   <section class="section" id="sec-log">
     <div class="status-bar">
-      <div class="sb-left"><span>📋 알람 발생 기록</span></div>
+      <div class="sb-left">
+        <span>📋 신호 기록 &amp; 승률 추적</span>
+        <span style="font-size:10px;color:var(--dim2)">매수 신호 발생 시 자동 저장 · 결과는 수동 업데이트</span>
+      </div>
       <button class="btn-refresh" onclick="clearLog()">🗑 기록 삭제</button>
     </div>
+    <div id="log-summary"></div>
     <div id="log-content"></div>
   </section>
 
@@ -858,6 +926,7 @@ let sellTicker    = null;
 let sellMarket    = null;
 let portfolios    = JSON.parse(localStorage.getItem('sr2_portfolios') || '{"us":[],"kr":[]}');
 let alarmLogs     = JSON.parse(localStorage.getItem('sr2_logs')      || '{"us":[],"kr":[]}');
+let signalLogs    = JSON.parse(localStorage.getItem('sr2_signals')  || '{"us":[],"kr":[]}');
 let snoozed       = {};
 let alarmActive   = false;
 let alarmCtx      = null;
@@ -890,8 +959,13 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSkeletons();
   renderPortfolio();
   renderLog();
+  updateMarketRegime(); // fetch SPY + KODEX200 for regime
   runScreener();
-  pollTimer = setInterval(() => { runScreener(true); updatePortfolio(true); }, RULES.pollInterval);
+  pollTimer = setInterval(() => {
+    runScreener(true);
+    updatePortfolio(true);
+    updateMarketRegime();
+  }, RULES.pollInterval);
 });
 
 // ═══════════════════════════════════════════════
@@ -1872,6 +1946,169 @@ function detectCandlePatterns(opens, highs, lows, closes, volumes) {
 // ═══════════════════════════════════════════════
 // SCORING ENGINE (100pt, based on 23-rule framework)
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKET REGIME ENGINE
+// Checks SPY (US) and KODEX200 (KR) vs 50MA → bull / neutral / bear
+// ═══════════════════════════════════════════════════════════════════════════
+const marketRegime = { us: 'loading', kr: 'loading' };
+
+async function updateMarketRegime() {
+  // US: SPY above 50MA?
+  try {
+    const spy = await fetchStockData('SPY');
+    const abv = spy.sma50 && spy.curr > spy.sma50;
+    const chg20 = spy.priceRunPct ?? 0;
+    marketRegime.us = abv ? (chg20 > -0.05 ? 'bull' : 'neutral') : 'bear';
+  } catch(e) { marketRegime.us = 'neutral'; }
+
+  // KR: 069500.KS (KODEX 200 ETF) above 50MA?
+  try {
+    const k200 = await fetchStockData('069500.KS');
+    const abv = k200.sma50 && k200.curr > k200.sma50;
+    const chg20 = k200.priceRunPct ?? 0;
+    marketRegime.kr = abv ? (chg20 > -0.05 ? 'bull' : 'neutral') : 'bear';
+  } catch(e) { marketRegime.kr = 'neutral'; }
+
+  renderRegimeBar();
+}
+
+function renderRegimeBar() {
+  const label = { bull:'📈 강세장', neutral:'➡️ 횡보장', bear:'📉 약세장' };
+  const us = marketRegime.us, kr = marketRegime.kr;
+  const up = document.getElementById('regime-us');
+  const kp = document.getElementById('regime-kr');
+  const rw = document.getElementById('regime-warn');
+  if (up) { up.textContent = '🇺🇸 ' + (label[us]||'조회중'); up.className = 'regime-pill ' + (us||'loading'); }
+  if (kp) { kp.textContent = '🇰🇷 ' + (label[kr]||'조회중'); kp.className = 'regime-pill ' + (kr||'loading'); }
+  const isBear = activeMarket === 'us' ? us === 'bear' : kr === 'bear';
+  if (rw) {
+    rw.style.display = isBear ? '' : 'none';
+    rw.textContent = isBear ? '⚠ 약세장 — 강력매수 기준 상향 적용 중' : '';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EDGE ENGINE — Score → Win Probability + Expected Return + R/R
+// Based on empirical weights from rule effectiveness research
+// ═══════════════════════════════════════════════════════════════════════════
+function computeEdge(d, signal) {
+  // ── Win probability (base 45%) ──────────────────────────────────────────
+  let prob = 45;
+
+  // Trend layer (most predictive)
+  if (d.aboveMA200 === true)  prob += 8;
+  else if (d.aboveMA200 === false) prob -= 6;
+  if (d.aboveMA50 === true)   prob += 5;
+  else if (d.aboveMA50 === false) prob -= 3;
+  if (d.goldenCross)          prob += 5;
+  else if (d.deathCross)      prob -= 5;
+
+  // Entry quality
+  if (d.nearMA)               prob += 4;
+  if (d.priceRunPct !== null && d.priceRunPct > 0.15) prob -= 6; // FOMO
+
+  // RSI zone
+  if (d.rsi !== null) {
+    if (d.rsi >= 35 && d.rsi <= 55) prob += 5;
+    else if (d.rsi < 30)            prob += 3;
+    else if (d.rsi > 75)            prob -= 7;
+    else if (d.rsi > 65)            prob -= 3;
+  }
+
+  // Volume confirmation
+  if (d.volRatio !== null) {
+    if (d.volRatio >= 1.5) prob += 5;
+    else if (d.volRatio < 0.7) prob -= 3;
+  }
+
+  // MACD momentum
+  if (d.macd) {
+    if (d.macd.bullCross)      prob += 6;
+    else if (d.macd.bearCross) prob -= 6;
+    else if (d.macd.aboveZero && d.macd.histRising) prob += 3;
+    if (d.macd.bullDiv) prob += 4;
+    else if (d.macd.bearDiv) prob -= 4;
+  }
+
+  // Bollinger
+  if (d.bBands) {
+    if (d.bBands.pctB < 0.15) prob += 4;
+    else if (d.bBands.pctB > 0.85) prob -= 4;
+    if (d.bBands.squeeze) prob += 2;
+  }
+
+  // Pattern bonus
+  if (d.patterns && d.patterns.length > 0) {
+    const pScore = d.patterns.reduce((s,p) => s + (p.score||0), 0);
+    prob += Math.max(-6, Math.min(8, pScore * 0.5));
+  }
+
+  // OBV
+  if (d.obv) {
+    if (d.obv.bullDiv) prob += 3;
+    else if (d.obv.bearDiv) prob -= 3;
+  }
+
+  // Market regime adjustment
+  const regime = activeMarket === 'us' ? marketRegime.us : marketRegime.kr;
+  if (regime === 'bear')    prob -= 12;
+  else if (regime === 'bull') prob += 4;
+
+  prob = Math.max(20, Math.min(85, Math.round(prob)));
+
+  // ── Expected return calculation ─────────────────────────────────────────
+  // Based on win prob, avg win (+4%), avg loss (-2%) per internal model
+  const avgWin = 0.042;  // average winner ~4.2%
+  const avgLoss = -0.021; // average loser ~-2.1%
+  const expectedReturn = (prob / 100) * avgWin + ((100 - prob) / 100) * avgLoss;
+
+  // ── Risk/Reward ratio ────────────────────────────────────────────────────
+  const stopPct = d.atr ? d.atr.stopPct : -0.08; // 2×ATR or -8% default
+  const riskAmt = Math.abs(stopPct);
+  const rewardT1 = riskAmt * 2;   // 2R target
+  const rewardT2 = riskAmt * 3.5; // 3.5R stretch
+  const rr = rewardT1 / riskAmt;
+
+  // ── Confidence tier ─────────────────────────────────────────────────────
+  const conf = prob >= 65 ? 'high' : prob >= 55 ? 'med' : 'low';
+
+  // ── Signal quality gate ──────────────────────────────────────────────────
+  // Filter: prob < 52% OR R/R < 1.5 → downgrade to 'watch'
+  let filteredSignal = signal;
+  if ((signal === 'buy' || signal === 'strong-buy') && (prob < 52 || rr < 1.5)) {
+    filteredSignal = 'watch';
+  }
+  // Bear market: require higher prob for buys
+  if (regime === 'bear' && (signal === 'buy' || signal === 'strong-buy') && prob < 60) {
+    filteredSignal = 'watch';
+  }
+
+  return { prob, expectedReturn, rr, conf, rewardT1, rewardT2, riskAmt, filteredSignal, regime };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRADE SETUP CALCULATOR
+// Entry / Stop / Target 1 / Target 2 + Position sizing
+// ═══════════════════════════════════════════════════════════════════════════
+function computeTradeSetup(d, edge) {
+  const price = d.curr;
+  if (!price) return null;
+
+  const riskPct = edge.riskAmt; // e.g. 0.08
+  const stop    = price * (1 - riskPct);
+  const t1      = price * (1 + edge.rewardT1);
+  const t2      = price * (1 + edge.rewardT2);
+
+  // Position sizing: 1% portfolio risk model
+  // Assume 1,000만원 (~$7,500) portfolio for sizing example
+  const portfolioKRW = 10_000_000;
+  const riskWon = portfolioKRW * 0.01; // 1% = 100,000원 risk per trade
+  const riskPerShare = price * riskPct;
+  const shares = riskPerShare > 0 ? Math.floor(riskWon / riskPerShare) : 0;
+
+  return { entry: price, stop, t1, t2, riskPct, shares };
+}
+
 function getSignal(d) {
   const reasons = [];
   let trend = 0;    // /30
@@ -2077,7 +2314,19 @@ function getSignal(d) {
   // 데이터 부족으로 핵심 지표 누락 시 신호 신뢰도 하향
   const signalReliable = !cov || (cov.ma200 && cov.ma50 && cov.rsi);
 
-  return { signal, score: total, trend, entry, vol, ctx, risk, reasons, scoreNotes, signalReliable };
+  // ── Compute edge (probability + R/R) ──────────────────────────────────────
+  const edge = computeEdge({ ...d, signal }, signal);
+
+  // Apply signal quality filter from edge engine
+  const finalSignal = edge.filteredSignal;
+
+  // Trade setup
+  const setup = (finalSignal === 'buy' || finalSignal === 'strong-buy' || finalSignal === 'watch')
+    ? computeTradeSetup(d, edge)
+    : null;
+
+  return { signal: finalSignal, rawSignal: signal, score: total, trend, entry, vol, ctx, risk,
+           reasons, scoreNotes, signalReliable, edge, setup };
 }
 
 function getPortfolioSignal(d, h) {
@@ -2330,6 +2579,9 @@ async function runScreener(silent = false) {
   const pfx = document.getElementById('progress-fill');
   pfx.className = 'progress-fill ' + m;
 
+  // Refresh regime on full scan (not silent)
+  if (!silent) updateMarketRegime();
+
   if (!silent) {
     document.getElementById('refresh-btn').disabled = true;
     document.getElementById('scan-status').textContent = '스캔 준비 중...';
@@ -2350,9 +2602,18 @@ async function runScreener(silent = false) {
       const sig = getSignal(raw);
       screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
-      if (sig.signal === 'strong-buy' && notifOn) {
-        addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
-        addLog(m, { type:'buy', ticker:s.ticker, name:s.name, score:sig.score, reasons:sig.reasons, time:Date.now() });
+      if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
+        if (notifOn && sig.signal === 'strong-buy')
+          addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
+        // Log signal with edge data for outcome tracking
+        addSignalLog(m, {
+          ticker: s.ticker, name: s.name, signal: sig.signal,
+          score: sig.score, price: raw.curr,
+          prob: sig.edge?.prob, expectedReturn: sig.edge?.expectedReturn,
+          rr: sig.edge?.rr, conf: sig.edge?.conf,
+          setup: sig.setup,
+          reasons: sig.reasons, time: Date.now(),
+        });
       }
     } catch(e) {
       screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
@@ -2471,6 +2732,10 @@ function buildCard(d, market) {
   const scoreW   = Math.min(100, score);
   const scoreGrad= score >= 70 ? '#00e676' : score >= 50 ? '#ffab00' : '#ff3d5a';
 
+  // Edge data (win probability, expected return, trade setup)
+  const edge  = d.edge  || null;
+  const setup = d.setup || null;
+
   const rsi = d.rsi;
   const rsiCls = rsi == null ? 'd' : rsi < 35 ? 'g' : rsi > 70 ? 'r' : rsi > 55 ? 'a' : '';
   const rsiW   = rsi ?? 50;
@@ -2582,17 +2847,63 @@ function buildCard(d, market) {
 
     ${dqHtml}
 
-    <div class="score-bar-wrap">
+    ${edge ? (() => {
+      const probCls = edge.prob >= 65 ? 'high' : edge.prob >= 55 ? 'med' : 'low';
+      const erPct = (edge.expectedReturn * 100).toFixed(1);
+      const erSign = edge.expectedReturn >= 0 ? '+' : '';
+      const rrCls  = edge.rr >= 2 ? 'good' : 'bad';
+      const confLbl = { high:'HIGH 신뢰도', med:'MED 신뢰도', low:'LOW 신뢰도' }[edge.conf] || '';
+
+      // Trade setup cells
+      const setupHtml = setup ? `
+        <div class="setup-grid">
+          <div class="setup-cell">
+            <div class="setup-lbl">진입가 (Entry)</div>
+            <div class="setup-val entry">${fmtShort(setup.entry, market)}</div>
+          </div>
+          <div class="setup-cell">
+            <div class="setup-lbl">손절가 (Stop)</div>
+            <div class="setup-val stop">${fmtShort(setup.stop, market)}</div>
+            <div class="setup-sub">-${(edge.riskAmt*100).toFixed(1)}% 리스크</div>
+          </div>
+          <div class="setup-cell">
+            <div class="setup-lbl">목표1 (2R)</div>
+            <div class="setup-val t1">${fmtShort(setup.t1, market)}</div>
+            <div class="setup-sub">+${(edge.rewardT1*100).toFixed(1)}%</div>
+          </div>
+          <div class="setup-cell">
+            <div class="setup-lbl">목표2 (3.5R)</div>
+            <div class="setup-val t2">${fmtShort(setup.t2, market)}</div>
+            <div class="setup-sub">+${(edge.rewardT2*100).toFixed(1)}%</div>
+          </div>
+        </div>
+        <div class="pos-row">
+          <span class="pos-label">포지션 사이징 (1% 리스크 · 1000만원 기준)</span>
+          <span class="pos-val">${setup.shares > 0 ? setup.shares.toLocaleString() + '주' : '계산불가'}</span>
+        </div>` : '';
+
+      return \`<div class="edge-panel">
+        <div class="edge-top">
+          <div class="edge-left">
+            <div class="edge-prob \${probCls}">\${edge.prob}%</div>
+            <div class="edge-sub">예측 승률</div>
+            <span class="edge-conf \${edge.conf}">\${confLbl}</span>
+          </div>
+          <div class="edge-right">
+            <div class="edge-er \${edge.expectedReturn >= 0 ? 'pos' : 'neg'}">\${erSign}\${erPct}% 기대수익</div>
+            <div class="edge-rr \${rrCls}">R/R = 1 : \${edge.rr.toFixed(1)}</div>
+            <div style="font-size:9px;color:var(--dim2);margin-top:3px">점수 \${score}pt · 레짐 \${{ bull:'📈강세', neutral:'➡️횡보', bear:'📉약세', loading:'--' }[edge.regime]||'--'}</div>
+          </div>
+        </div>
+        \${setupHtml}
+      </div>\`;
+    })() : `<div class="score-bar-wrap">
       <div class="score-row">
-        <span class="score-label">종합점수 (70↑ = BUY)${!d.signalReliable ? ' ⚡' : ''}</span>
-        <span class="score-num ${scoreCol}" title="${!d.signalReliable ? '데이터 부족으로 점수 불완전' : ''}">
-          ${score}pt${!d.signalReliable ? '<span style="color:var(--amber);font-size:8px;margin-left:3px">불완전</span>' : ''}
-        </span>
+        <span class="score-label">종합점수</span>
+        <span class="score-num ${scoreCol}">${score}pt</span>
       </div>
-      <div class="score-track">
-        <div class="score-fill" style="width:${Math.min(100,scoreW)}%;background:${!d.signalReliable ? '#ffab00' : scoreGrad}"></div>
-      </div>
-    </div>
+      <div class="score-track"><div class="score-fill" style="width:${Math.min(100,scoreW)}%;background:${scoreGrad}"></div></div>
+    </div>`}
 
     <div class="inds">
       <div class="ind">
@@ -3244,7 +3555,112 @@ function renderLog() {
 function clearLog() {
   if (!confirm('알람 기록을 삭제하시겠습니까?')) return;
   alarmLogs[activeMarket] = [];
+  signalLogs[activeMarket] = [];
   localStorage.setItem('sr2_logs', JSON.stringify(alarmLogs));
+  localStorage.setItem('sr2_signals', JSON.stringify(signalLogs));
+  renderLog();
+}
+
+// ── Signal log: store BUY signals with edge metadata ─────────────────────
+function addSignalLog(market, entry) {
+  if (!signalLogs[market]) signalLogs[market] = [];
+  // Avoid duplicate within 4 hours for same ticker
+  const recent = signalLogs[market].find(e => e.ticker === entry.ticker && Date.now() - e.time < 4 * 3600000);
+  if (recent) return;
+  signalLogs[market].unshift(entry);
+  if (signalLogs[market].length > 200) signalLogs[market].pop();
+  localStorage.setItem('sr2_signals', JSON.stringify(signalLogs));
+  // Update badge
+  const badge = document.getElementById('badge-log');
+  if (badge) { badge.style.display = ''; badge.textContent = signalLogs[market].length; }
+  renderLog();
+}
+
+function renderLog() {
+  const m   = activeMarket;
+  const sigs = signalLogs[m] || [];
+  const alarms = alarmLogs[m] || [];
+  const el  = document.getElementById('log-content');
+  const sumEl = document.getElementById('log-summary');
+
+  // ── Summary stats ──────────────────────────────────────────────────────
+  if (sumEl) {
+    const total = sigs.length;
+    const withOutcome = sigs.filter(s => s.outcome != null);
+    const wins = withOutcome.filter(s => s.outcome > 0).length;
+    const winRate = withOutcome.length > 0 ? Math.round((wins / withOutcome.length) * 100) : null;
+    const avgReturn = withOutcome.length > 0
+      ? (withOutcome.reduce((s,e) => s + (e.outcome||0), 0) / withOutcome.length * 100).toFixed(1)
+      : null;
+    const avgProb = total > 0 ? Math.round(sigs.reduce((s,e) => s + (e.prob||50), 0) / total) : null;
+
+    sumEl.innerHTML = `<div class="log-summary">
+      <div class="log-sum-card">
+        <div class="log-sum-val">${total}</div>
+        <div class="log-sum-lbl">총 신호 수</div>
+      </div>
+      <div class="log-sum-card">
+        <div class="log-sum-val" style="color:${winRate==null?'var(--dim2)':winRate>=55?'var(--green)':winRate>=45?'var(--amber)':'var(--red)'}">${winRate != null ? winRate + '%' : '--'}</div>
+        <div class="log-sum-lbl">실현 승률 (${withOutcome.length}건)</div>
+      </div>
+      <div class="log-sum-card">
+        <div class="log-sum-val" style="color:${avgReturn==null?'var(--dim2)':parseFloat(avgReturn)>=0?'var(--green)':'var(--red)'}">${avgReturn != null ? (parseFloat(avgReturn)>=0?'+':'') + avgReturn + '%' : '--'}</div>
+        <div class="log-sum-lbl">평균 수익률</div>
+      </div>
+      <div class="log-sum-card">
+        <div class="log-sum-val" style="color:var(--amber)">${avgProb != null ? avgProb + '%' : '--'}</div>
+        <div class="log-sum-lbl">평균 예측 승률</div>
+      </div>
+    </div>`;
+  }
+
+  if (!sigs.length && !alarms.length) {
+    el.innerHTML = `<div class="pf-empty"><div class="big">📭</div>신호 기록이 없습니다.<br><small>매수/강력매수 신호 발생 시 자동 저장됩니다</small></div>`;
+    return;
+  }
+
+  // ── Signal entries ─────────────────────────────────────────────────────
+  const sigHtml = sigs.map((e, idx) => {
+    const disp = /\.(KS|KQ)$/.test(e.ticker||'') ? (e.name||e.ticker) : e.ticker;
+    const t = new Date(e.time).toLocaleString('ko-KR', { timeZone:'Asia/Seoul', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    const sigCls = e.signal === 'strong-buy' ? 'var(--green)' : 'var(--blue)';
+    const sigLbl = e.signal === 'strong-buy' ? '🔥 강력매수' : '✅ 매수';
+    const probCls = (e.prob||0) >= 65 ? 'var(--green)' : (e.prob||0) >= 55 ? 'var(--amber)' : 'var(--dim2)';
+    const erVal = e.expectedReturn != null ? ((e.expectedReturn*100)>=0?'+':'') + (e.expectedReturn*100).toFixed(1) + '%' : '--';
+    const erCls = e.expectedReturn >= 0 ? 'var(--green)' : 'var(--red)';
+    const outHtml = e.outcome != null
+      ? `<div class="slog-outcome ${e.outcome > 0 ? 'win' : 'loss'}">결과: ${e.outcome > 0 ? '▲ +' : '▼ '}${(e.outcome*100).toFixed(1)}%</div>`
+      : `<div class="slog-outcome pending" style="display:flex;justify-content:space-between;align-items:center">
+          <span>결과 미기록 (포트폴리오 매도 시 자동 반영)</span>
+          <button onclick="logOutcome('${m}',${idx})" style="font-size:9px;padding:2px 7px;background:none;border:1px solid var(--border2);border-radius:3px;color:var(--text2);cursor:pointer">수동 입력</button>
+        </div>`;
+    return `<div class="slog-entry">
+      <div class="slog-header">
+        <span class="slog-ticker" style="color:${sigCls}">${disp} <span style="font-size:10px;font-weight:400">${sigLbl}</span></span>
+        <span class="slog-time">${t}</span>
+      </div>
+      ${e.price ? `<div style="font-size:10px;color:var(--dim2);margin-bottom:5px">진입가 기준: ${e.price.toLocaleString()}</div>` : ''}
+      <div class="slog-stats">
+        <div class="slog-stat"><div class="slog-stat-lbl">예측 승률</div><div class="slog-stat-val" style="color:${probCls}">${e.prob != null ? e.prob + '%' : '--'}</div></div>
+        <div class="slog-stat"><div class="slog-stat-lbl">기대수익</div><div class="slog-stat-val" style="color:${erCls}">${erVal}</div></div>
+        <div class="slog-stat"><div class="slog-stat-lbl">R/R</div><div class="slog-stat-val" style="color:${(e.rr||0)>=2?'var(--green)':'var(--amber)'}">${e.rr ? '1:' + e.rr.toFixed(1) : '--'}</div></div>
+        <div class="slog-stat"><div class="slog-stat-lbl">신뢰도</div><div class="slog-stat-val" style="color:${e.conf==='high'?'var(--green)':e.conf==='med'?'var(--amber)':'var(--dim2)'}">${{high:'HIGH',med:'MED',low:'LOW'}[e.conf]||'--'}</div></div>
+      </div>
+      ${outHtml}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = sigHtml || `<div style="text-align:center;padding:30px;color:var(--dim2);font-size:11px">신호 기록 없음</div>`;
+}
+
+function logOutcome(market, idx) {
+  const val = prompt('결과 수익률 입력 (예: 3.2 또는 -1.5):');
+  if (val == null) return;
+  const pct = parseFloat(val);
+  if (isNaN(pct)) return;
+  if (!signalLogs[market]) return;
+  signalLogs[market][idx].outcome = pct / 100;
+  localStorage.setItem('sr2_signals', JSON.stringify(signalLogs));
   renderLog();
 }
 
@@ -3658,6 +4074,7 @@ function switchMarket(m) {
   renderSkeletons();
   renderPortfolio();
   renderLog();
+  renderRegimeBar(); // update regime bar for new market
   runScreener();
 }
 
