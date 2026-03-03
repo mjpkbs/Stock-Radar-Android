@@ -1098,34 +1098,54 @@ async function asyncPool(items, limit, worker) {
 }
 
 // ═══════════════════════════════════════════════
-// BATCH REALTIME QUOTE (Yahoo v7 — up to 50 symbols)
+// BATCH REALTIME QUOTE (v8/chart meta fallback)
+// Yahoo v7/finance/quote is now 401-blocked.
+// Instead: fetch each ticker's v8/chart with range=5d to get latest meta price.
+// For batch: use asyncPool to parallelize chart fetches.
 // ═══════════════════════════════════════════════
 async function fetchBatchQuotes(tickers) {
   if (!tickers.length) return {};
   const results = {};
-  for (let i = 0; i < tickers.length; i += 40) {
-    const batch = tickers.slice(i, i + 40);
-    const symbols = batch.join(',');
-    const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols)
-      + '&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketVolume,regularMarketTime';
+
+  // Use v8/chart with range=5d (lightweight, just need meta price)
+  await asyncPool(tickers, 4, async (ticker) => {
     try {
-      const data = await fetchWithProxy(url);
-      const quotes = data?.quoteResponse?.result || [];
-      quotes.forEach(q => {
-        if (q.symbol && q.regularMarketPrice != null) {
-          results[q.symbol] = {
-            price:     q.regularMarketPrice,
-            prevClose: q.regularMarketPreviousClose ?? null,
-            changePct: q.regularMarketChangePercent ?? null,
-            volume:    q.regularMarketVolume ?? null,
-            time:      q.regularMarketTime ? new Date(q.regularMarketTime * 1000) : null,
+      // Check if we already have a fresh chart cache
+      if (isChartCacheFresh(ticker)) {
+        const cached = getChartCache(ticker);
+        const meta = cached?.chart?.result?.[0]?.meta;
+        if (meta?.regularMarketPrice != null) {
+          results[ticker] = {
+            price:     meta.regularMarketPrice,
+            prevClose: meta.regularMarketPreviousClose ?? meta.previousClose ?? null,
+            changePct: meta.regularMarketPrice && meta.regularMarketPreviousClose
+              ? ((meta.regularMarketPrice - meta.regularMarketPreviousClose) / meta.regularMarketPreviousClose * 100)
+              : null,
+            volume:    meta.regularMarketVolume ?? null,
+            time:      null,
           };
-          _setCachedQuote(q.symbol, results[q.symbol]); // 배치 결과도 인메모리 캐시
+          _setCachedQuote(ticker, results[ticker]);
+          return;
         }
-      });
-    } catch(e) { /* batch failed, individual fallback later */ }
-    if (i + 40 < tickers.length) await sleep(200);
-  }
+      }
+      // Fetch fresh chart data (small range for speed)
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`;
+      const data = await fetchWithProxy(url);
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta?.regularMarketPrice != null) {
+        results[ticker] = {
+          price:     meta.regularMarketPrice,
+          prevClose: meta.regularMarketPreviousClose ?? meta.previousClose ?? null,
+          changePct: meta.regularMarketPrice && meta.regularMarketPreviousClose
+            ? ((meta.regularMarketPrice - meta.regularMarketPreviousClose) / meta.regularMarketPreviousClose * 100)
+            : null,
+          volume:    meta.regularMarketVolume ?? null,
+          time:      null,
+        };
+        _setCachedQuote(ticker, results[ticker]);
+      }
+    } catch(e) { /* skip failed tickers */ }
+  });
   return results;
 }
 
@@ -1344,25 +1364,25 @@ async function fetchWithProxy(url) {
   throw new Error('데이터 로드 실패');
 }
 
-// ── 텍스트 응답 전용 proxy (Naver fchart 등 non-JSON API) ─────────────────
-// ── 실시간 현재가 fetch (v7/finance/quote) — 미장 & 국장 모두 Yahoo 사용 ──────
-// v8/finance/chart meta보다 업데이트가 빠름
+// ── 실시간 현재가 fetch — v8/finance/chart meta에서 추출 ──────────────────
+// Yahoo v7/finance/quote는 401 차단됨. v8/chart meta에 regularMarketPrice 포함.
 async function fetchRealtimeQuote(ticker) {
-  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + ticker
-            + '&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketVolume,regularMarketTime';
   try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`;
     const data = await fetchWithProxy(url);
-    const q = data?.quoteResponse?.result?.[0];
-    if (!q || q.regularMarketPrice == null) return null;
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta || meta.regularMarketPrice == null) return null;
     return {
-      price:     q.regularMarketPrice,
-      prevClose: q.regularMarketPreviousClose ?? null,
-      changePct: q.regularMarketChangePercent ?? null,
-      volume:    q.regularMarketVolume ?? null,
-      time:      q.regularMarketTime ? new Date(q.regularMarketTime * 1000) : null,
+      price:     meta.regularMarketPrice,
+      prevClose: meta.regularMarketPreviousClose ?? meta.previousClose ?? null,
+      changePct: meta.regularMarketPrice && meta.regularMarketPreviousClose
+        ? ((meta.regularMarketPrice - meta.regularMarketPreviousClose) / meta.regularMarketPreviousClose * 100)
+        : null,
+      volume:    meta.regularMarketVolume ?? null,
+      time:      null,
     };
   } catch(e) {
-    return null; // 실패해도 chart API fallback으로 진행
+    return null;
   }
 }
 
@@ -3407,98 +3427,47 @@ const KR_SCREENER_POOLS = {
   ],
 };
 
-// ── US Screener: fetch bulk quotes, sort by relevant metric, return top 25 ──
+// ═══════════════════════════════════════════════════════════════════════════
+// SCREENER — NO API NEEDED (v7/quote & v1/screener are 401-blocked)
+// Simply return the curated pool tickers. Names/sectors come from WATCHLISTS
+// or are left blank (fetchStockData + v8/chart will provide actual data).
+// Actual sorting by performance happens after the scan fetches chart data.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Build a name/sector lookup from WATCHLISTS
+const _wlLookup = {};
+['us','kr'].forEach(m => {
+  (WATCHLISTS[m] || []).forEach(s => { _wlLookup[s.ticker] = s; });
+});
+
 async function fetchUSScreener(screenerId) {
   const pool = US_SCREENER_POOLS[screenerId] || US_SCREENER_POOLS.gainers;
   const labels = { gainers:'🚀 당일 급등', volume:'📊 거래량 급증', growth:'📈 성장주', '52wk':'🏆 신고가' };
-
-  // 1) Try Yahoo trending API first
-  try {
-    const trendUrl = 'https://query1.finance.yahoo.com/v1/finance/trending/US?count=25';
-    const trendData = await fetchWithProxy(trendUrl);
-    const trendQuotes = trendData?.finance?.result?.[0]?.quotes || [];
-    if (trendQuotes.length >= 10) {
-      const symbols = trendQuotes.map(q => q.symbol).filter(s => s && !/\.(KS|KQ)$/i.test(s));
-      // Enrich with quote data
-      const quoteUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + symbols.join(',')
-        + '&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketVolume,sector,industry';
-      const quoteData = await fetchWithProxy(quoteUrl);
-      const quotes = quoteData?.quoteResponse?.result || [];
-      if (quotes.length >= 5) {
-        const sorted = sortScreenerQuotes(quotes, screenerId);
-        return sorted.slice(0, 25).map(q => ({
-          ticker: q.symbol,
-          name:   q.shortName || q.longName || q.symbol,
-          sector: q.sector || q.industry || 'Other',
-          note:   (labels[screenerId]||'') + ' · ' + (q.regularMarketChangePercent != null ? q.regularMarketChangePercent.toFixed(2) : '--') + '%',
-          _src:   screenerId,
-        }));
-      }
-    }
-  } catch(e) { console.warn('US trending fallback:', e.message); }
-
-  // 2) Fallback: bulk-quote the pool, sort, return top 25
-  try {
-    const quoteUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + pool.join(',')
-      + '&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketVolume,sector,industry,fiftyTwoWeekHighChangePercent';
-    const data = await fetchWithProxy(quoteUrl);
-    const quotes = data?.quoteResponse?.result || [];
-    const sorted = sortScreenerQuotes(quotes, screenerId);
-    return sorted.slice(0, 25).map(q => ({
-      ticker: q.symbol,
-      name:   q.shortName || q.longName || q.symbol,
-      sector: q.sector || q.industry || 'Other',
-      note:   (labels[screenerId]||'') + ' · ' + (q.regularMarketChangePercent != null ? q.regularMarketChangePercent.toFixed(2) : '--') + '%',
+  return pool.map(ticker => {
+    const wl = _wlLookup[ticker];
+    return {
+      ticker,
+      name:   wl?.name || ticker,
+      sector: wl?.sector || 'Other',
+      note:   labels[screenerId] || screenerId,
       _src:   screenerId,
-    }));
-  } catch(e) {
-    console.warn('US screener pool fallback failed:', e.message);
-    return [];
-  }
+    };
+  });
 }
 
-// ── KR Screener: bulk-quote KR pool, sort by metric, return top 25 ──────────
 async function fetchKRScreener(screenerId) {
   const cfg = YF_KR_CFG[screenerId];
   const pool = KR_SCREENER_POOLS[screenerId] || KR_SCREENER_POOLS.gainers;
-
-  try {
-    const quoteUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + pool.join(',')
-      + '&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketVolume,sector,industry,fiftyTwoWeekHighChangePercent';
-    const data = await fetchWithProxy(quoteUrl);
-    const quotes = data?.quoteResponse?.result || [];
-    const sorted = sortScreenerQuotes(quotes, screenerId);
-    return sorted.slice(0, 25)
-      .filter(q => q.symbol && /\.(KS|KQ)$/i.test(q.symbol))
-      .map(q => ({
-        ticker: q.symbol,
-        name:   q.shortName || q.longName || q.symbol,
-        sector: q.sector || q.industry || '기타',
-        note:   cfg.label + ' · ' + (q.regularMarketChangePercent != null ? q.regularMarketChangePercent.toFixed(2) : '--') + '%',
-        _src:   screenerId,
-      }));
-  } catch(e) {
-    console.warn('KR screener pool fallback failed:', e.message);
-    return [];
-  }
-}
-
-// ── Sort helper: sort quotes by metric matching screener type ────────────────
-function sortScreenerQuotes(quotes, screenerId) {
-  switch(screenerId) {
-    case 'gainers':
-      return [...quotes].sort((a,b) => (b.regularMarketChangePercent||0) - (a.regularMarketChangePercent||0));
-    case 'volume':
-      return [...quotes].sort((a,b) => (b.regularMarketVolume||0) - (a.regularMarketVolume||0));
-    case 'growth':
-      // Sort by change% as proxy (EPS growth not available in v7/quote)
-      return [...quotes].sort((a,b) => (b.regularMarketChangePercent||0) - (a.regularMarketChangePercent||0));
-    case '52wk':
-      // Sort by proximity to 52-week high (closest first = least negative)
-      return [...quotes].sort((a,b) => (b.fiftyTwoWeekHighChangePercent||(-999)) - (a.fiftyTwoWeekHighChangePercent||(-999)));
-    default:
-      return quotes;
-  }
+  return pool.map(ticker => {
+    const wl = _wlLookup[ticker];
+    return {
+      ticker,
+      name:   wl?.name || ticker,
+      sector: wl?.sector || '기타',
+      note:   cfg.label,
+      _src:   screenerId,
+    };
+  });
 }
 
 // Router: market determines which API path to use
