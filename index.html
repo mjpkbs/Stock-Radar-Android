@@ -245,6 +245,23 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .calib-fill{height:100%;border-radius:10px;transition:width .4s ease}
 .calib-fill.done{background:var(--green)}.calib-fill.partial{background:var(--amber)}
 
+/* ── BACKTEST BADGE ──────────────────────────────────────────────────────── */
+.mini-badge{display:inline-block;font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.04em;margin-bottom:4px;white-space:nowrap}
+.mini-badge.mini-ok{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.3)}
+.mini-badge.mini-bad{background:rgba(255,61,90,.12);color:var(--red);border:1px solid rgba(255,61,90,.3)}
+.mini-badge.mini-na{background:rgba(122,143,170,.1);color:var(--dim2);border:1px solid var(--border2)}
+.mini-badge.mini-run{background:rgba(68,136,255,.12);color:var(--blue);border:1px solid rgba(68,136,255,.3)}
+.btn-ghost{padding:8px 10px;background:none;border:1px solid var(--border2);border-radius:5px;color:var(--text2);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s}
+.btn-ghost:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── BT RESULTS PANEL ────────────────────────────────────────────────────── */
+.bt-panel{margin-top:8px;padding:8px 10px;background:var(--bg4);border-radius:5px;border:1px solid var(--border2)}
+.bt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:6px}
+.bt-cell{text-align:center}
+.bt-cell-lbl{font-size:8px;color:var(--dim2);margin-bottom:2px}
+.bt-cell-val{font-size:12px;font-weight:700}
+.bt-trades{font-size:9px;color:var(--dim2);margin-top:5px;padding-top:5px;border-top:1px solid var(--border)}
+
 /* pattern panel */
 .pattern-panel{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
 .pat-item{background:var(--bg3);border-radius:5px;padding:7px 10px;border-left:3px solid}
@@ -526,6 +543,7 @@ tbody tr.sold-row{opacity:.65}
       </div>
       <div style="display:flex;gap:7px">
         <button class="btn-refresh" style="border-color:var(--blue);color:var(--blue)" onclick="openScreenerModal()">⚙️ 종목 소스</button>
+        <button class="btn-refresh" style="border-color:var(--amber);color:var(--amber)" onclick="runAllBacktests()" id="bt-all-btn" title="현재 목록 전체 백테스트 (수 분 소요)">📊 BT전체</button>
         <button class="btn-refresh" id="refresh-btn" onclick="runScreener()">↺ 스캔</button>
       </div>
     </div>
@@ -539,6 +557,7 @@ tbody tr.sold-row{opacity:.65}
       <button class="fbtn" onclick="setFilter('sell',this)">⚠️ 매도경보</button>
       <button class="fbtn" onclick="setFilter('pattern',this)">📐 패턴</button>
       <button class="fbtn" onclick="setFilter('candle',this)">🕯 캔들</button>
+      <button class="fbtn" onclick="setFilter('bt-pass',this)" title="백테스트 게이트 통과 종목만">✅ BT통과</button>
     </div>
     <div class="screener-grid" id="screener-grid"></div>
   </section>
@@ -785,6 +804,24 @@ tbody tr.sold-row{opacity:.65}
       <div class="rule-row"><span class="rule-num">R19</span>1종목 최대 10% · 1섹터 최대 25%</div>
       <div class="rule-row"><span class="rule-num">R22</span>손실 종목 물타기 금지 — 수익 종목에만 추가매수</div>
     </div>
+    <div class="rules-panel" style="border-color:rgba(0,230,118,.2);background:rgba(0,230,118,.03)">
+      <h4>📊 백테스트 수익성 게이트 (신규)</h4>
+      <div class="rule-row" style="flex-direction:column;gap:4px">
+        <b style="color:var(--text)">작동 방식</b>
+        <span>각 종목의 과거 2년 데이터를 받아 매일 같은 신호 규칙을 적용, 가상으로 매수→매도를 반복합니다. 실제 손절(-8%), 수익실현(+20/+40%), 트레일링스톱(-10%)을 그대로 시뮬레이션.</span>
+      </div>
+      <div class="rule-row" style="margin-top:6px">
+        <span class="rule-num" style="background:rgba(0,230,118,.15);color:var(--green)">통과</span>
+        거래 수 ≥ 20 + 기대값 &gt; 0 + 최대 손실 &gt; -25%
+      </div>
+      <div class="rule-row">
+        <span class="rule-num" style="background:rgba(255,61,90,.12);color:var(--red)">차단</span>
+        위 조건 중 하나라도 미충족 → BUY 자동으로 HOLD 처리
+      </div>
+      <div class="rule-row" style="margin-top:4px;color:var(--dim2);font-size:10px">
+        카드 하단 📊 버튼 클릭 시 실행 · 결과는 브라우저에 저장됨
+      </div>
+    </div>
     <div class="rules-panel" style="border-color:rgba(68,136,255,.3);background:rgba(68,136,255,.04)">
       <h4>🧠 확률 엔진 작동 방식</h4>
       <div class="rule-row" style="flex-direction:column;gap:4px">
@@ -949,6 +986,8 @@ let sellMarket    = null;
 let portfolios    = JSON.parse(localStorage.getItem('sr2_portfolios') || '{"us":[],"kr":[]}');
 let alarmLogs     = JSON.parse(localStorage.getItem('sr2_logs')      || '{"us":[],"kr":[]}');
 let signalLogs    = JSON.parse(localStorage.getItem('sr2_signals')  || '{"us":[],"kr":[]}');
+let btCache       = JSON.parse(localStorage.getItem('sr2_bt')       || '{"us":{},"kr":{}}');
+function saveBtCache() { localStorage.setItem('sr2_bt', JSON.stringify(btCache)); }
 let snoozed       = {};
 let alarmActive   = false;
 let alarmCtx      = null;
@@ -1957,6 +1996,228 @@ function renderRegimeBar() {
 // Based on empirical weights from rule effectiveness research
 // ═══════════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════════
+// BACKTEST ENGINE  (ported from index_profit.html — the "Evidence Gate")
+// Downloads 2y of actual price history, replays every BUY signal day-by-day,
+// simulates real stop/profit/trailing execution, computes expectancy.
+// Only lets BUY through if: N≥20 trades + expectancy>0 + maxDrawdown>-25%
+// ═══════════════════════════════════════════════════════════════════════════
+async function fetchHistory(ticker, range='2y', interval='1d') {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}&includePrePost=false&events=div%7Csplit`;
+  try {
+    const j = await fetchWithProxy(url);
+    const r = j?.chart?.result?.[0];
+    if (!r) return null;
+    const ts = r.timestamp || [];
+    const q  = r.indicators?.quote?.[0] || {};
+    const candles = [];
+    for (let i = 0; i < ts.length; i++) {
+      if (q.close?.[i] == null) continue;
+      candles.push({ t: ts[i]*1000, o: q.open?.[i], h: q.high?.[i], l: q.low?.[i], c: q.close[i], v: q.volume?.[i] ?? 0 });
+    }
+    return candles;
+  } catch(e) { return null; }
+}
+
+function _smaAt(closes, period, idx) {
+  if (idx < period - 1) return null;
+  let s = 0;
+  for (let i = idx - period + 1; i <= idx; i++) s += closes[i];
+  return s / period;
+}
+function _rsiAt(closes, idx, period = 14) {
+  if (idx < period) return null;
+  let gains = 0, losses = 0;
+  for (let i = idx - period + 1; i <= idx; i++) {
+    const ch = closes[i] - closes[i - 1];
+    if (ch >= 0) gains += ch; else losses -= ch;
+  }
+  if (losses === 0) return 100;
+  return 100 - (100 / (1 + gains / losses));
+}
+function _volRatioAt(vols, idx, period = 20) {
+  if (idx < period || !vols[idx]) return null;
+  let s = 0, n = 0;
+  for (let i = idx - period + 1; i <= idx; i++) { if (vols[i]) { s += vols[i]; n++; } }
+  return n ? vols[idx] / (s / n) : null;
+}
+
+function buildDerivedFromHistory(candles, i) {
+  const closes = candles.map(x => x.c);
+  const highs  = candles.map(x => x.h);
+  const lows   = candles.map(x => x.l);
+  const vols   = candles.map(x => x.v ?? 0);
+  const curr   = closes[i];
+  const ma20   = _smaAt(closes, 20, i);
+  const ma50   = _smaAt(closes, 50, i);
+  const ma200  = _smaAt(closes, 200, i);
+  const rsi    = _rsiAt(closes, i, 14);
+  const vr     = _volRatioAt(vols, i, 20);
+  const prev50  = _smaAt(closes, 50, i - 1);
+  const prev200 = _smaAt(closes, 200, i - 1);
+  const goldenCross = (prev50 != null && prev200 != null && ma50 != null && ma200 != null) ? (prev50 <= prev200 && ma50 > ma200) : false;
+  const deathCross  = (prev50 != null && prev200 != null && ma50 != null && ma200 != null) ? (prev50 >= prev200 && ma50 < ma200) : false;
+  const nearGolden  = (ma50 != null && ma200 != null && ma50 < ma200 && (ma200 - ma50) / ma200 < 0.02);
+  const aboveMA50   = ma50  != null ? curr > ma50  : null;
+  const aboveMA200  = ma200 != null ? curr > ma200 : null;
+  const aboveMA50pct = ma50 != null ? (curr - ma50) / ma50 : null;
+  const nearMA = (ma20 != null && Math.abs((curr - ma20) / ma20) < 0.015) ||
+                 (ma50 != null && Math.abs((curr - ma50) / ma50) < 0.015);
+  const priceRunPct = i >= 20 ? (curr - closes[i - 20]) / closes[i - 20] : null;
+  const patterns = detectPatterns(closes.slice(0, i + 1), highs.slice(0, i + 1), lows.slice(0, i + 1), vols.slice(0, i + 1));
+  return { ticker: null, curr, rsi, volRatio: vr, aboveMA50, aboveMA200, aboveMA50pct,
+           goldenCross, nearGolden, deathCross, nearMA, priceRunPct, patterns };
+}
+
+function simulateTrade(candles, entryIdx, entryPrice) {
+  const stopPrice = entryPrice * (1 + RULES.stopLoss);    // -8%
+  const tp1Price  = entryPrice * (1 + RULES.profitTier1); // +20%
+  const tp2Price  = entryPrice * (1 + RULES.profitTier2); // +40%
+  let peak = entryPrice, sold1 = false, sold2 = false, remaining = 1.0, realized = 0;
+
+  for (let i = entryIdx + 1; i < candles.length; i++) {
+    const c = candles[i].c;
+    peak = Math.max(peak, c);
+
+    // Hard stop
+    if (c <= stopPrice) {
+      realized += remaining * (c / entryPrice - 1);
+      return { exitIdx: i, exitPrice: c, realized, reason: 'stop' };
+    }
+    // Tier 2 profit (+40%) — sell 1/3
+    if (!sold2 && c >= tp2Price) {
+      const sz = Math.min(1 / 3, remaining);
+      realized += sz * (c / entryPrice - 1);
+      remaining -= sz; sold2 = true;
+    } else if (!sold1 && c >= tp1Price) {
+      // Tier 1 profit (+20%) — sell 1/3
+      const sz = Math.min(1 / 3, remaining);
+      realized += sz * (c / entryPrice - 1);
+      remaining -= sz; sold1 = true;
+    }
+    // Trailing stop (-10% from peak while profitable)
+    const fromPeak = (c - peak) / peak;
+    if (remaining > 0 && fromPeak <= -Math.abs(RULES.trailingStop) && c > entryPrice) {
+      realized += remaining * (c / entryPrice - 1);
+      return { exitIdx: i, exitPrice: c, realized, reason: 'trailing' };
+    }
+  }
+  const last = candles[candles.length - 1].c;
+  realized += remaining * (last / entryPrice - 1);
+  return { exitIdx: candles.length - 1, exitPrice: last, realized, reason: 'eod' };
+}
+
+async function backtestTicker(ticker, market, range = '2y') {
+  const candles = await fetchHistory(ticker, range, '1d');
+  if (!candles || candles.length < 260) return null;
+
+  const trades = [];
+  for (let i = 210; i < candles.length - 6; i++) {
+    const d = buildDerivedFromHistory(candles, i);
+    d.ticker = ticker;
+    const base = getSignal(d);
+    if (base.signal !== 'buy' && base.signal !== 'strong-buy') continue;
+    if (base.signal === 'strong-buy' && d.volRatio != null && d.volRatio < RULES.volConfirm) continue;
+
+    const entryPrice = candles[i + 1].o ?? candles[i + 1].c;
+    const sim = simulateTrade(candles, i + 1, entryPrice);
+    trades.push({
+      entryIdx: i + 1, entryPrice,
+      exitIdx: sim.exitIdx, exitPrice: sim.exitPrice,
+      r: sim.realized, reason: sim.reason,
+      score: base.score, signal: base.signal
+    });
+  }
+
+  const n = trades.length;
+  if (!n) return { ticker, market, n: 0, trades: [], metrics: null };
+
+  const wins    = trades.filter(t => t.r > 0).length;
+  const avg     = trades.reduce((s, t) => s + t.r, 0) / n;
+  const avgWin  = (() => { const w = trades.filter(t => t.r > 0); return w.length ? w.reduce((s,t) => s+t.r, 0)/w.length : 0; })();
+  const avgLoss = (() => { const l = trades.filter(t => t.r <= 0); return l.length ? l.reduce((s,t) => s+t.r, 0)/l.length : 0; })();
+
+  // Equity curve + max drawdown
+  let eq = 1, peak = 1, maxDD = 0;
+  for (const t of trades) {
+    eq *= (1 + t.r);
+    if (eq > peak) peak = eq;
+    const dd = (eq - peak) / peak;
+    if (dd < maxDD) maxDD = dd;
+  }
+
+  const winRate   = wins / n;
+  const expectancy = winRate * avgWin + (1 - winRate) * avgLoss;
+
+  return { ticker, market, n, trades, metrics: { winRate, avgReturn: avg, expectancy, maxDrawdown: maxDD, avgWin, avgLoss } };
+}
+
+function profitabilityGate(ticker, market) {
+  const rec = btCache?.[market]?.[ticker];
+  const m   = rec?.metrics;
+  if (!m) return { has: false, pass: false, note: 'BT없음', rec: null };
+
+  // Gate: N≥20 trades + positive expectancy + drawdown within -25%
+  const pass = (rec.n >= 20) && (m.expectancy > 0) && (m.maxDrawdown > -0.25);
+  const note = `E ${(m.expectancy*100).toFixed(1)}% · W ${(m.winRate*100).toFixed(0)}% · DD ${(m.maxDrawdown*100).toFixed(0)}% · N${rec.n}`;
+  return { has: true, pass, note, rec, m };
+}
+
+async function runBacktestUI(ticker, market) {
+  const cardEl = document.getElementById('card-' + ticker.replace(/\./g, '_'));
+  const btBtn  = cardEl?.querySelector('.btn-ghost');
+  if (btBtn) { btBtn.textContent = '⏳'; btBtn.disabled = true; }
+  try {
+    const res = await backtestTicker(ticker, market, '2y');
+    if (!res || !res.metrics) {
+      addToast(ticker, '데이터 부족 (260일 필요)', false); return;
+    }
+    btCache[market] = btCache[market] || {};
+    btCache[market][ticker] = { ...res, updatedAt: Date.now() };
+    saveBtCache();
+    const gate = profitabilityGate(ticker, market);
+    addToast(ticker, `📊 BT완료 · ${gate.note}`, gate.pass);
+    updateSingleCard(market, ticker);
+  } catch(e) {
+    addToast(ticker, '백테스트 실패', false);
+  } finally {
+    if (btBtn) { btBtn.textContent = '📊'; btBtn.disabled = false; }
+  }
+}
+
+// Run BT sequentially on all current scan items (no BT yet or stale > 7 days)
+async function runAllBacktests() {
+  const m  = activeMarket;
+  const wl = activeScanList[m].length ? activeScanList[m] : WATCHLISTS[m];
+  const btn = document.getElementById('bt-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ BT중...'; }
+
+  let done = 0;
+  for (const s of wl) {
+    const existing = btCache[m]?.[s.ticker];
+    const stale = !existing || (Date.now() - existing.updatedAt > 7 * 24 * 3600 * 1000);
+    if (!stale) { done++; continue; }
+
+    try {
+      const res = await backtestTicker(s.ticker, m, '2y');
+      if (res?.metrics) {
+        btCache[m] = btCache[m] || {};
+        btCache[m][s.ticker] = { ...res, updatedAt: Date.now() };
+        saveBtCache();
+        updateSingleCard(m, s.ticker);
+      }
+    } catch(e) { /* skip */ }
+
+    done++;
+    if (btn) btn.textContent = `⏳ ${done}/${wl.length}`;
+    await new Promise(r => setTimeout(r, 800)); // rate limit
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '📊 BT전체'; }
+  finalRender(m);
+  addToast('전체', `📊 백테스트 완료 (${wl.length}종목)`, true);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // HISTORICAL WIN RATE ENGINE
 // Pulls real outcomes from signalLogs to calibrate probability
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2600,8 +2861,16 @@ async function runScreener(silent = false) {
   let done = 0, buyCnt = 0;
   for (const s of wl) {
     try {
-      const raw = await fetchStockData(s.ticker);
-      const sig = getSignal(raw);
+      const raw  = await fetchStockData(s.ticker);
+      const sig  = getSignal(raw);
+      // Apply profitability gate: if BT exists + fails → hold
+      const gate = profitabilityGate(s.ticker, m);
+      if (gate.has && !gate.pass && (sig.signal === 'buy' || sig.signal === 'strong-buy')) {
+        sig.signal  = 'hold';
+        sig.btGated = true;
+        sig.reasons = [{ text: `📊 BT게이트: ${gate.note}`, t: 'w' }, ...(sig.reasons || [])];
+      }
+      sig.btGate = gate;
       screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
@@ -2696,8 +2965,9 @@ function finalRender(market) {
   if (currentFilter !== 'all') {
     const f = currentFilter;
     if (f === 'sell')    items = items.filter(d => d.signal === 'sell' || d.signal === 'strong-sell');
-    else if (f === 'pattern') items = items.filter(d => d.patterns && d.patterns.length > 0);
-    else if (f === 'candle')  items = items.filter(d => d.patterns && d.patterns.some(p => p.candle));
+    else if (f === 'pattern')  items = items.filter(d => d.patterns && d.patterns.length > 0);
+    else if (f === 'candle')   items = items.filter(d => d.patterns && d.patterns.some(p => p.candle));
+    else if (f === 'bt-pass')  items = items.filter(d => d.btGate?.has && d.btGate?.pass);
     else items = items.filter(d => d.signal === f);
   }
   grid.innerHTML = items.length
@@ -2723,6 +2993,40 @@ function buildCard(d, market) {
         </button>
       </div></div>`;
   }
+
+  // Backtest gate display
+  const gate = d.btGate || profitabilityGate(d.ticker, market);
+  const btBadge = (() => {
+    if (!gate.has) return `<span class="mini-badge mini-na" title="📊 클릭하여 2년 백테스트 실행">BT미실행</span>`;
+    const rec = gate.rec?.metrics;
+    if (!rec) return '';
+    const col = gate.pass ? 'mini-ok' : 'mini-bad';
+    const icon = gate.pass ? '✓' : '✗';
+    return `<span class="mini-badge ${col}" title="${gate.note}">${icon} E:${(rec.expectancy*100).toFixed(1)}% W:${(rec.winRate*100).toFixed(0)}% N${gate.rec?.n}</span>`;
+  })();
+
+  // BT full panel (shown only when BT exists)
+  const btPanelHtml = (() => {
+    const rec = gate.rec; const m2 = gate.m;
+    if (!rec || !m2) return '';
+    const passStr = gate.pass ? '<span style="color:var(--green)">✓ 게이트 통과</span>' : '<span style="color:var(--red)">✗ 게이트 실패 — BUY 보류됨</span>';
+    const eCol = m2.expectancy > 0 ? 'var(--green)' : 'var(--red)';
+    const wCol = m2.winRate >= 0.55 ? 'var(--green)' : m2.winRate >= 0.45 ? 'var(--amber)' : 'var(--red)';
+    const ddCol = m2.maxDrawdown > -0.15 ? 'var(--green)' : m2.maxDrawdown > -0.25 ? 'var(--amber)' : 'var(--red)';
+    const updAt = rec.updatedAt ? new Date(rec.updatedAt).toLocaleDateString('ko-KR') : '?';
+    return `<div class="bt-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:9px">
+        <b style="color:var(--text)">📊 백테스트 결과 (2년)</b>${passStr}
+      </div>
+      <div class="bt-grid">
+        <div class="bt-cell"><div class="bt-cell-lbl">기대값</div><div class="bt-cell-val" style="color:${eCol}">${(m2.expectancy*100).toFixed(1)}%</div></div>
+        <div class="bt-cell"><div class="bt-cell-lbl">승률</div><div class="bt-cell-val" style="color:${wCol}">${(m2.winRate*100).toFixed(0)}%</div></div>
+        <div class="bt-cell"><div class="bt-cell-lbl">최대DD</div><div class="bt-cell-val" style="color:${ddCol}">${(m2.maxDrawdown*100).toFixed(0)}%</div></div>
+        <div class="bt-cell"><div class="bt-cell-lbl">거래수</div><div class="bt-cell-val" style="color:var(--text2)">${rec.n}건</div></div>
+      </div>
+      <div class="bt-trades">평균수익 ${(m2.avgReturn*100).toFixed(2)}% · 평균승 +${(m2.avgWin*100).toFixed(1)}% · 평균패 ${(m2.avgLoss*100).toFixed(1)}% · 업데이트 ${updAt}</div>
+    </div>`;
+  })();
 
   const sig      = d.signal || 'hold';
   const cardCls  = { 'strong-buy':'s-strong-buy','buy':'s-buy','sell':'s-sell','strong-sell':'s-strong-sell' }[sig] || '';
@@ -2832,6 +3136,7 @@ function buildCard(d, market) {
   return `<div class="stock-card ${cardCls}" id="${id}">
     <div class="card-top">
       <div class="stock-id">
+        ${btBadge}
         <div class="ticker">${market === 'kr' ? d.name : dispTicker}</div>
         <div class="sname">${market === 'kr' ? dispTicker : d.name}</div>
         <div class="ssector">${d.sector}</div>
@@ -2976,6 +3281,8 @@ function buildCard(d, market) {
 
     <div class="rule-chips">${ruleChips.map(c=>`<span class="rule-chip ${c.c}">${c.lbl}</span>`).join('')}</div>
 
+    ${btPanelHtml}
+
     ${patternHtml}
 
     ${dqHtml && (d.scoreNotes||[]).length > 0 ? '' : ''}
@@ -2985,6 +3292,7 @@ function buildCard(d, market) {
       <button class="btn-buy" onclick="openModal('${d.ticker}','${market}')" ${inPf?'disabled':''}>
         ${inPf ? '✓ 보유중' : '매수 기록'}
       </button>
+      <button class="btn-ghost" onclick="runBacktestUI('${d.ticker}','${market}')" title="2년 백테스트 실행">📊</button>
       <button class="btn-watch" onclick="this.classList.toggle('on')" title="관찰">👀</button>
     </div>
   </div>`;
