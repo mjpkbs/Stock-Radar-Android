@@ -989,38 +989,108 @@ const RULES = {
   maxSectorPct:   0.25,     // R19: max 25% per sector
   maxPositionPct: 0.10,     // R19: max 10% per stock
   pollInterval:   5 * 60 * 1000,
+  // ── performance ─────────────────────────────
+  scanConcurrency: 6,        // 동시 요청 수 (높이면 빨라지지만 프록시/레이트리밋 위험)
+  useRealtimeQuotes: true,   // 장중일 때만 v7/quote 사용 (장 마감 시 자동으로 안 씀)
   // ── ATR-BASED STOPS OPTION ────────────────────────────────────────────
   useATRStops:    true,     // true: ATR-based, false: fixed %
   kStop:          2.0,      // stop = entry - kStop × ATR
   kTP1:           3.0,      // target1 = entry + kTP1 × ATR
   kTP2:           5.0,      // target2 = entry + kTP2 × ATR
   // ── TRADING COST (backtest realism) ───────────────────────────────────
-  feeBps:         10,       // commission bps (10 = 0.10%)
-  spreadBps:       5,       // typical spread bps
-  slipBpsBase:     3,       // base slippage bps
-  slipBpsByATR:    2,       // extra slippage per 1% ATR
-  minSlipBps:      1,       // minimum slippage
+  feeBps:         2.0,       // per side (commission) in bps
+  spreadBps:      2.0,       // half-spread approximation
+  slipBpsBase:    6.0,       // baseline slippage
+  slipBpsByATR:   25.0,      // extra slippage scaled by ATR%
+  minSlipBps:     3.0,       // minimum slippage
   // ── ENTRY MODEL (backtest) ────────────────────────────────────────────
   entryMode:      'next_open',  // 'next_open' | 'close' | 'breakout_stop' | 'retest_limit'
 };
 
-// ═══════════════════════════════════════════════
-// CHART DATA CACHE (daily TTL)
-// Historical chart data doesn't change intra-day.
-// Cache it in memory to avoid re-fetching on every poll.
-// ═══════════════════════════════════════════════
-const chartCache = {};  // { ticker: { data, fetchedDate } }
-const CHART_CACHE_TTL = 6 * 3600 * 1000;  // 6 hours
+/* ═══════════════════════════════════════════════
+   CACHE & PERFORMANCE ENGINE (Merged)
+   - chart(1y,1d) bars: daily → localStorage + in-memory LRU (24h TTL)
+   - realtime quote: market hours only → in-memory (15s TTL)
+   - batch quote: fetch up to 40 symbols at once (v7 API)
+   - asyncPool: concurrent scanning with configurable limit
+═══════════════════════════════════════════════ */
+const CACHECFG = {
+  chartTTLms: 24 * 60 * 60 * 1000,   // 24h
+  quoteTTLms: 15 * 1000,             // 15s (only during market open)
+  maxChartItems: 140,                // localStorage LRU cap
+};
 
-function chartCacheKey(ticker) { return ticker; }
-function isChartCacheFresh(ticker) {
-  const c = chartCache[ticker];
-  if (!c) return false;
-  return (Date.now() - c.fetchedAt) < CHART_CACHE_TTL;
+const _memChart = new Map(); // ticker -> { t, v }
+const _memQuote = new Map(); // ticker -> { t, v }
+
+function _lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch(e) { return null; }
 }
-function getChartCache(ticker) { return chartCache[ticker]?.data || null; }
+function _lsSet(key, obj) {
+  try { localStorage.setItem(key, JSON.stringify(obj)); } catch(e) { /* quota */ }
+}
+function _cacheGet(key, ttlMs) {
+  const item = _lsGet(key);
+  if (!item || !item.t) return null;
+  if (Date.now() - item.t > ttlMs) return null;
+  return item.v ?? null;
+}
+function _cacheSet(key, val, indexKey, maxItems) {
+  const now = Date.now();
+  _lsSet(key, { t: now, v: val });
+  try {
+    const idx = _lsGet(indexKey) || [];
+    const filtered = idx.filter(k => k !== key);
+    filtered.unshift(key);
+    const pruned = filtered.slice(0, maxItems);
+    _lsSet(indexKey, pruned);
+    filtered.slice(maxItems).forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
+  } catch(e) {}
+}
+
+function isChartCacheFresh(ticker) {
+  const mem = _memChart.get(ticker);
+  if (mem && (Date.now() - mem.t) <= CACHECFG.chartTTLms) return true;
+  const key = 'sr2_chart_' + ticker;
+  return !!_cacheGet(key, CACHECFG.chartTTLms);
+}
+function getChartCache(ticker) {
+  const mem = _memChart.get(ticker);
+  if (mem && (Date.now() - mem.t) <= CACHECFG.chartTTLms) return mem.v;
+  const key = 'sr2_chart_' + ticker;
+  const v = _cacheGet(key, CACHECFG.chartTTLms);
+  if (v) _memChart.set(ticker, { t: Date.now(), v });
+  return v;
+}
 function setChartCache(ticker, data) {
-  chartCache[ticker] = { data, fetchedAt: Date.now() };
+  _memChart.set(ticker, { t: Date.now(), v: data });
+  const key = 'sr2_chart_' + ticker;
+  _cacheSet(key, data, 'sr2_chart_idx', CACHECFG.maxChartItems);
+}
+
+function _getCachedQuote(ticker) {
+  const mem = _memQuote.get(ticker);
+  if (mem && (Date.now() - mem.t) <= CACHECFG.quoteTTLms) return mem.v;
+  return null;
+}
+function _setCachedQuote(ticker, q) {
+  _memQuote.set(ticker, { t: Date.now(), v: q });
+}
+
+// ── ASYNC POOL: concurrent scanning with configurable limit ─────────────
+async function asyncPool(items, limit, worker) {
+  const ret = [];
+  const executing = [];
+  for (let i = 0; i < items.length; i++) {
+    const p = Promise.resolve().then(() => worker(items[i], i));
+    ret.push(p);
+    if (limit <= items.length) {
+      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+      executing.push(e);
+      if (executing.length >= limit) await Promise.race(executing);
+    }
+  }
+  return Promise.allSettled(ret);
 }
 
 // ═══════════════════════════════════════════════
@@ -1029,7 +1099,6 @@ function setChartCache(ticker, data) {
 async function fetchBatchQuotes(tickers) {
   if (!tickers.length) return {};
   const results = {};
-  // Yahoo v7 supports comma-separated symbols, process in batches of 40
   for (let i = 0; i < tickers.length; i += 40) {
     const batch = tickers.slice(i, i + 40);
     const symbols = batch.join(',');
@@ -1047,6 +1116,7 @@ async function fetchBatchQuotes(tickers) {
             volume:    q.regularMarketVolume ?? null,
             time:      q.regularMarketTime ? new Date(q.regularMarketTime * 1000) : null,
           };
+          _setCachedQuote(q.symbol, results[q.symbol]); // 배치 결과도 인메모리 캐시
         }
       });
     } catch(e) { /* batch failed, individual fallback later */ }
@@ -1056,19 +1126,19 @@ async function fetchBatchQuotes(tickers) {
 }
 
 // ═══════════════════════════════════════════════
-// TRADING COST ENGINE (Module 1)
+// TRADING COST ENGINE (Module 1 — Enhanced)
+// Includes liquidity adjustment for more realistic slippage
 // ═══════════════════════════════════════════════
 function estimateTradingCost({ price, atrPct, dollarVolume, side }) {
-  let bps = RULES.feeBps + RULES.spreadBps;
-  const slip = Math.max(RULES.minSlipBps, RULES.slipBpsBase + RULES.slipBpsByATR * (atrPct || 0.02) * 100);
-  bps += slip;
-  return bps;
+  // Liquidity adjustment: lower volume → more slippage
+  const liqAdj = (dollarVolume && dollarVolume > 0) ? Math.min(12, 2e7 / dollarVolume) : 6;
+  const slip = Math.max(RULES.minSlipBps, RULES.slipBpsBase + (RULES.slipBpsByATR * (atrPct || 0.02)) + liqAdj);
+  return RULES.feeBps + RULES.spreadBps + slip;
 }
 
 function applyCostToFill(fillPrice, bps, side) {
-  // side: 'buy' adds cost, 'sell' subtracts cost
-  const factor = side === 'buy' ? (1 + bps / 10000) : (1 - bps / 10000);
-  return fillPrice * factor;
+  const k = bps / 10000;
+  return side === 'buy' ? fillPrice * (1 + k) : fillPrice * (1 - k);
 }
 
 // ═══════════════════════════════════════════════
@@ -1293,7 +1363,11 @@ async function fetchRealtimeQuote(ticker) {
 }
 
 async function fetchStockData(ticker, preQuote) {
-  // ── Use cached chart data if available ─────────────────────────────────
+  // ── Heavy "chart" data is mostly daily → LRU cache (24h) ──────────────
+  const isKR = /\.(KS|KQ)$/i.test(ticker);
+  const marketOpen = isKR ? isKROpen() : isUSOpen();
+  const wantQuote  = !!RULES.useRealtimeQuotes && marketOpen;
+
   let data;
   if (isChartCacheFresh(ticker)) {
     data = getChartCache(ticker);
@@ -1303,10 +1377,14 @@ async function fetchStockData(ticker, preQuote) {
     setChartCache(ticker, data);
   }
 
-  // v7/quote: use preQuote if available (from batch fetch), else fetch individually
+  // v7/quote: use preQuote (batch) > in-memory cache > individual fetch
   let rtQuote = preQuote || null;
-  if (!rtQuote) {
-    rtQuote = await fetchRealtimeQuote(ticker);
+  if (!rtQuote && wantQuote) {
+    rtQuote = _getCachedQuote(ticker);
+    if (!rtQuote) {
+      rtQuote = await fetchRealtimeQuote(ticker);
+      if (rtQuote) _setCachedQuote(ticker, rtQuote);
+    }
   }
 
   const r = data?.chart?.result?.[0];
@@ -2282,9 +2360,10 @@ function simulateEntry(candles, signalIdx, mode, params) {
 }
 
 function simulateTrade(candles, entryIdx, entryPrice, atrAtEntry) {
-  // ── TRADING COST on entry ──────────────────────────────────────────────
+  // ── TRADING COST on entry (with liquidity adjustment) ─────────────────
   const atrPct = (atrAtEntry && entryPrice > 0) ? atrAtEntry / entryPrice : 0.02;
-  const entryCostBps = estimateTradingCost({ price: entryPrice, atrPct });
+  const dv = (candles?.[entryIdx]?.v != null) ? (entryPrice * candles[entryIdx].v) : null;
+  const entryCostBps = estimateTradingCost({ price: entryPrice, atrPct, dollarVolume: dv, side: 'buy' });
   const adjEntryPrice = applyCostToFill(entryPrice, entryCostBps, 'buy');
 
   // ── STOPS: ATR-based or fixed ──────────────────────────────────────────
@@ -2303,26 +2382,26 @@ function simulateTrade(candles, entryIdx, entryPrice, atrAtEntry) {
 
   for (let i = entryIdx + 1; i < candles.length; i++) {
     const c = candles[i].c;
+    if (c == null) continue;
     peak = Math.max(peak, c);
+    const dvNow = (candles[i].v != null) ? (c * candles[i].v) : dv;
+    const bpsNow = estimateTradingCost({ price: c, atrPct, dollarVolume: dvNow, side: 'sell' });
 
     // Hard stop
     if (c <= stopPrice) {
-      const exitCost = estimateTradingCost({ price: c, atrPct });
-      const adjExit = applyCostToFill(c, exitCost, 'sell');
+      const adjExit = applyCostToFill(c, bpsNow, 'sell');
       realized += remaining * (adjExit / adjEntryPrice - 1);
-      return { exitIdx: i, exitPrice: c, realized, reason: 'stop' };
+      return { exitIdx: i, exitPrice: adjExit, realized, reason: RULES.useATRStops ? 'atr_stop' : 'stop' };
     }
     // Tier 2 profit → sell 1/3
     if (!sold2 && c >= tp2Price) {
-      const exitCost = estimateTradingCost({ price: c, atrPct });
-      const adjExit = applyCostToFill(c, exitCost, 'sell');
+      const adjExit = applyCostToFill(c, bpsNow, 'sell');
       const sz = Math.min(1 / 3, remaining);
       realized += sz * (adjExit / adjEntryPrice - 1);
       remaining -= sz; sold2 = true;
     } else if (!sold1 && c >= tp1Price) {
       // Tier 1 profit → sell 1/3
-      const exitCost = estimateTradingCost({ price: c, atrPct });
-      const adjExit = applyCostToFill(c, exitCost, 'sell');
+      const adjExit = applyCostToFill(c, bpsNow, 'sell');
       const sz = Math.min(1 / 3, remaining);
       realized += sz * (adjExit / adjEntryPrice - 1);
       remaining -= sz; sold1 = true;
@@ -2330,17 +2409,17 @@ function simulateTrade(candles, entryIdx, entryPrice, atrAtEntry) {
     // Trailing stop
     const fromPeak = (c - peak) / peak;
     if (remaining > 0 && fromPeak <= -Math.abs(RULES.trailingStop) && c > adjEntryPrice) {
-      const exitCost = estimateTradingCost({ price: c, atrPct });
-      const adjExit = applyCostToFill(c, exitCost, 'sell');
+      const adjExit = applyCostToFill(c, bpsNow, 'sell');
       realized += remaining * (adjExit / adjEntryPrice - 1);
-      return { exitIdx: i, exitPrice: c, realized, reason: 'trailing' };
+      return { exitIdx: i, exitPrice: adjExit, realized, reason: 'trailing' };
     }
   }
   const last = candles[candles.length - 1].c;
-  const exitCost = estimateTradingCost({ price: last, atrPct });
-  const adjLast = applyCostToFill(last, exitCost, 'sell');
+  const dvLast = (candles?.at(-1)?.v != null && last != null) ? (last * candles.at(-1).v) : dv;
+  const bpsLast = estimateTradingCost({ price: last, atrPct, dollarVolume: dvLast, side: 'sell' });
+  const adjLast = applyCostToFill(last, bpsLast, 'sell');
   realized += remaining * (adjLast / adjEntryPrice - 1);
-  return { exitIdx: candles.length - 1, exitPrice: last, realized, reason: 'eod' };
+  return { exitIdx: candles.length - 1, exitPrice: adjLast, realized, reason: 'eod' };
 }
 
 // ── Helper: compute metrics from a trade array ───────────────────────────
@@ -3373,10 +3452,12 @@ async function runScreener(silent = false) {
   // ── BATCH REALTIME QUOTE (speed optimization) ─────────────────────────
   // Fetch all realtime prices in 1-2 API calls instead of N individual calls
   const allTickers = wl.map(s => s.ticker);
+  const isKR_mkt = m === 'kr';
+  const mktOpen = isKR_mkt ? isKROpen() : isUSOpen();
   if (!silent) {
-    document.getElementById('scan-status').textContent = '실시간 시세 배치 조회 중...';
+    document.getElementById('scan-status').textContent = mktOpen ? '실시간 시세 배치 조회 중...' : '시세 데이터 로딩 중...';
   }
-  const batchQuotes = await fetchBatchQuotes(allTickers);
+  const batchQuotes = (RULES.useRealtimeQuotes && mktOpen) ? await fetchBatchQuotes(allTickers) : {};
   if (!silent) pfx.style.width = '10%';
 
   let done = 0, buyCnt = 0;
@@ -3384,13 +3465,13 @@ async function runScreener(silent = false) {
   const needChartFetch = wl.filter(s => !isChartCacheFresh(s.ticker));
   const hasCached      = wl.filter(s => isChartCacheFresh(s.ticker));
 
+  const concurrency = Math.max(1, Math.min(10, RULES.scanConcurrency || 6));
   if (!silent) {
-    const cachedPct = hasCached.length / wl.length * 100;
     document.getElementById('scan-status').textContent =
-      `분석 중... (캐시 ${hasCached.length}/${wl.length}개, 신규 ${needChartFetch.length}개)`;
+      `분석 중... (캐시 ${hasCached.length}/${wl.length}개, 신규 ${needChartFetch.length}개, 동시 ${concurrency})`;
   }
 
-  for (const s of wl) {
+  const results = await asyncPool(wl, concurrency, async (s, idx) => {
     try {
       const preQuote = batchQuotes[s.ticker] || null;
       const raw  = await fetchStockData(s.ticker, preQuote);
@@ -3405,10 +3486,11 @@ async function runScreener(silent = false) {
       sig.btGate = gate;
       screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
+
       if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
         if (notifOn && sig.signal === 'strong-buy')
           addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
-        // Log signal with edge data for outcome tracking
+
         addSignalLog(m, {
           ticker: s.ticker, name: s.name, signal: sig.signal,
           score: sig.score, price: raw.curr,
@@ -3422,17 +3504,12 @@ async function runScreener(silent = false) {
       }
     } catch(e) {
       screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
+    } finally {
+      done++;
+      if (!silent) pfx.style.width = `${10 + (done/wl.length)*90}%`;
+      updateSingleCard(m, s.ticker);
     }
-    done++;
-    if (!silent) pfx.style.width = `${10 + (done/wl.length)*90}%`;
-    updateSingleCard(m, wl[done-1].ticker);
-    // ── Smart delay: skip delay for cached tickers, short delay for API calls ──
-    if (isChartCacheFresh(wl[done-1].ticker)) {
-      await sleep(30);   // minimal delay for cached (just for UI update)
-    } else {
-      await sleep(280);  // normal delay for API calls
-    }
-  }
+  });
 
   finalRender(m);
   if (!silent) {
@@ -3868,9 +3945,11 @@ async function updatePortfolio(silent = false) {
   const pf = portfolios[m];
   if (!pf.length) { renderPortfolio(); return; }
 
-  // Batch fetch realtime quotes for all portfolio tickers
+  // Batch fetch realtime quotes for all portfolio tickers (only during market hours)
   const pfTickers = pf.map(h => h.ticker);
-  const batchQ = await fetchBatchQuotes(pfTickers);
+  const isKR_pf = m === 'kr';
+  const pfMktOpen = isKR_pf ? isKROpen() : isUSOpen();
+  const batchQ = (RULES.useRealtimeQuotes && pfMktOpen) ? await fetchBatchQuotes(pfTickers) : {};
 
   for (const h of pf) {
     try {
