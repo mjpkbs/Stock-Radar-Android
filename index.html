@@ -827,7 +827,7 @@ tbody tr.sold-row{opacity:.65}
       </div>
       <div class="rule-row" style="margin-top:6px">
         <span class="rule-num" style="background:rgba(0,230,118,.15);color:var(--green)">통과</span>
-        거래 수 ≥ 20 + 기대값 &gt; 0 + 최대 손실 &gt; -25%
+        거래 수 ≥ 15 + 기대값 &gt; 0 + 승률 ≥ 52% + 최대 손실 &gt; -30% + WF 60%↑ 통과
       </div>
       <div class="rule-row">
         <span class="rule-num" style="background:rgba(255,61,90,.12);color:var(--red)">차단</span>
@@ -839,7 +839,7 @@ tbody tr.sold-row{opacity:.65}
       </div>
       <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
         <b style="color:var(--amber)">전략 전체 BUY 차단 조건</b>
-        <span>📊 BT전체 실행 후 → OOS 전략 기대값 ≤ 0 이거나 OOS 승률 &lt; 50% 이면 모든 BUY 신호 자동 차단</span>
+        <span>📊 BT전체 실행 후 → OOS 전략 기대값 ≤ 0 이거나 OOS 승률 &lt; 50% 이면 모든 BUY 신호 자동 차단. Walk-forward 비일관성(60%미만 통과) 시 개별 종목도 차단</span>
       </div>
       <div class="rule-row" style="margin-top:4px;color:var(--dim2);font-size:10px">
         카드 하단 📊 버튼 = 개별 · 상단 "📊 BT전체" = 전체 전략 백테스트
@@ -849,11 +849,15 @@ tbody tr.sold-row{opacity:.65}
       <h4>🧠 확률 엔진 작동 방식</h4>
       <div class="rule-row" style="flex-direction:column;gap:4px">
         <b style="color:var(--amber)">초기 단계 (결과 10건 미만)</b>
-        <span>룰 기반 추정 승률 사용 — 200일선·RSI·MACD 등 20개 지표로 계산 (보수적 적용)</span>
+        <span>룰 기반 추정 승률 사용 — 200일선·RSI·MACD 등 20개 지표로 계산 (보수적 적용). 표본 부족 시 "~추정" 표시</span>
       </div>
       <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
-        <b style="color:var(--green)">보정 단계 (결과 10건 이상)</b>
-        <span>실제 5일 수익률 데이터로 승률 자동 재보정 — 점수 구간별 실측값 사용</span>
+        <b style="color:var(--blue)">보정 중간 (결과 10~29건)</b>
+        <span>베이지안 스무딩(라플라스) 적용 — 표본이 적을수록 50%로 수축, 많을수록 실측값 신뢰. "~실측(보정중)" 표시</span>
+      </div>
+      <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
+        <b style="color:var(--green)">완전 보정 (결과 30건 이상)</b>
+        <span>실제 5일 수익률 데이터로 승률 자동 재보정 — 점수 구간별 실측값 사용. "실측" 배지 표시</span>
       </div>
       <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
         <b style="color:var(--text2)">BUY 신호 통과 조건 (전부 충족)</b>
@@ -2490,8 +2494,38 @@ async function backtestTicker(ticker, market, range = '2y') {
   const testMetrics = calcMetrics(testTrades);  // OOS — the real truth
 
   if (!metrics) return { ticker, market, n: 0, trades: [], metrics: null, testMetrics: null };
+
+  // ── Walk-forward consistency check (if enough data) ─────────────────────
+  let wfReport = null;
+  if (candles.length >= 400) {
+    const windows = splitWalkForward(candles);
+    if (windows.length >= 3) {
+      const windowResults = windows.map(w => ({
+        window: w,
+        metrics: backtestWindow(candles, w),
+      }));
+      const allN      = windowResults.reduce((s, w) => s + w.metrics.n, 0);
+      const allWins   = windowResults.reduce((s, w) => s + Math.round(w.metrics.winRate * w.metrics.n), 0);
+      const allExpect = windowResults.filter(w => w.metrics.n > 0).map(w => w.metrics.expectancy);
+      const avgExpect = allExpect.length ? allExpect.reduce((a,b)=>a+b,0) / allExpect.length : 0;
+      const stdExpect = allExpect.length > 1
+        ? Math.sqrt(allExpect.reduce((s, e) => s + (e - avgExpect) ** 2, 0) / (allExpect.length - 1))
+        : 0;
+      wfReport = {
+        n: allN,
+        winRate: allN > 0 ? allWins / allN : 0,
+        avgExpectancy: avgExpect,
+        stdExpectancy: stdExpect,
+        consistency: stdExpect > 0 ? avgExpect / stdExpect : (avgExpect > 0 ? 999 : 0),
+        windowCount: windows.length,
+        passCount: windowResults.filter(w => w.metrics.expectancy > 0).length,
+        passRatio: windowResults.length > 0 ? windowResults.filter(w => w.metrics.expectancy > 0).length / windowResults.length : 0,
+      };
+    }
+  }
+
   return { ticker, market, n: allTrades.length, trades: allTrades,
-           metrics, testMetrics, splitIdx, dataValid: dv, updatedAt: Date.now() };
+           metrics, testMetrics, splitIdx, dataValid: dv, wfReport, updatedAt: Date.now() };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2618,8 +2652,10 @@ function profitabilityGate(ticker, market) {
   // Prefer OOS (test) metrics — the real truth. Fall back to full if OOS too small.
   const tm  = rec.testMetrics;   // out-of-sample
   const fm  = rec.metrics;       // full (in-sample)
-  const m   = (tm && tm.n >= 5) ? tm : fm;  // use OOS if enough trades
-  const isOOS = (tm && tm.n >= 5);
+  const m   = (tm && tm.n >= 15) ? tm : fm;  // use OOS only if ≥15 trades (statistically meaningful)
+  const isOOS = (tm && tm.n >= 15);
+  // Small-sample warning: OOS exists but too few trades
+  const oosSmallSample = tm && tm.n > 0 && tm.n < 15;
 
   if (!m) return { has: false, pass: false, note: 'BT없음', rec: null };
 
@@ -2628,16 +2664,23 @@ function profitabilityGate(ticker, market) {
   const strat = btStrategy?.[market];
   const sm    = strat?.testMetrics || strat?.metrics;
 
+  // ── Walk-forward consistency gate (Module 3 integration) ────────────────
+  const wf = rec.wfReport;
+  const wfPassRatio  = wf ? wf.passRatio : 1;           // default pass if no WF data
+  const wfConsistent = !wf || wf.passRatio >= 0.60;      // at least 60% of windows profitable
+  const wfGoodConsistency = !wf || wf.consistency >= 0.3; // avg/std > 0.3
+
   const passOOS      = isOOS;                          // bonus: real OOS data
   const passN        = rec.n >= 15;                    // enough trades
   const passExpect   = m.expectancy > 0;               // positive expected value
   const passWinRate  = m.winRate >= 0.52;              // win rate ≥ 52%
   const passDD       = m.maxDrawdown > -0.30;          // drawdown within -30%
   const passStrategy = !sm || (sm.expectancy > 0 && sm.winRate >= 0.50); // strategy OK
+  const passWF       = wfConsistent && wfGoodConsistency; // walk-forward gate
 
-  const pass = passN && passExpect && passWinRate && passDD && passStrategy;
+  const pass = passN && passExpect && passWinRate && passDD && passStrategy && passWF;
 
-  const oosTag = isOOS ? `OOS✓(${tm.n}건)` : `IS(${rec.n}건)`;
+  const oosTag = isOOS ? `OOS✓(${tm.n}건)` : oosSmallSample ? `OOS△(${tm.n}건·표본부족)` : `IS(${rec.n}건)`;
   const note = `${oosTag} E:${(m.expectancy*100).toFixed(1)}% W:${(m.winRate*100).toFixed(0)}% DD:${(m.maxDrawdown*100).toFixed(0)}%`;
 
   const failReasons = [];
@@ -2646,8 +2689,10 @@ function profitabilityGate(ticker, market) {
   if (!passWinRate)  failReasons.push(`승률<52%`);
   if (!passDD)       failReasons.push(`낙폭>30%`);
   if (!passStrategy) failReasons.push(`전략전체 부진`);
+  if (!passWF)       failReasons.push(`WF비일관(${wf ? (wf.passRatio*100).toFixed(0) : '?'}%통과)`);
+  if (oosSmallSample) failReasons.push(`OOS표본부족(${tm.n}<15건)`);
 
-  return { has: true, pass, note, failReasons, rec, m, tm, isOOS };
+  return { has: true, pass, note, failReasons, rec, m, tm, isOOS, oosSmallSample };
 }
 
 // ── Strategy-level gate (portfolio-wide sanity check) ────────────────────
@@ -2779,10 +2824,23 @@ function getHistoricalStats(market) {
   // Bucket into low(<65) / high(>=65) score zones
   const hiScore  = logs.filter(e => (e.score||0) >= 65);
   const loScore  = logs.filter(e => (e.score||0) < 65);
-  const hiWr     = hiScore.length ? hiScore.filter(e=>e.outcome>0).length / hiScore.length : winRate;
-  const loWr     = loScore.length ? loScore.filter(e=>e.outcome>0).length / loScore.length : winRate;
 
-  return { winRate, avgWin, avgLoss, avgRet, n, hiWr, loWr };
+  // ── Bayesian/Laplace smoothing: shrink bucket win-rates toward 50% when sample is small ──
+  // Formula: (wins + alpha) / (n + 2*alpha), where alpha controls shrinkage strength
+  // Small n → more shrinkage toward 50%, large n → closer to raw empirical rate
+  const ALPHA = 2; // Laplace smoothing pseudocounts (higher = more shrinkage)
+  const hiWr = hiScore.length > 0
+    ? (hiScore.filter(e=>e.outcome>0).length + ALPHA) / (hiScore.length + 2*ALPHA)
+    : 0.50;
+  const loWr = loScore.length > 0
+    ? (loScore.filter(e=>e.outcome>0).length + ALPHA) / (loScore.length + 2*ALPHA)
+    : 0.50;
+
+  // Bucket sample sizes for display
+  const hiN = hiScore.length;
+  const loN = loScore.length;
+
+  return { winRate, avgWin, avgLoss, avgRet, n, hiWr, loWr, hiN, loN };
 }
 
 function computeEdge(d, signal) {
@@ -2795,9 +2853,15 @@ function computeEdge(d, signal) {
   let prob;
 
   if (histStats && histStats.n >= 10) {
-    // Real data available — use score zone to pick base rate
+    // Real data available — use score zone to pick base rate (Bayesian smoothed)
     const scoreGuess = d.score || 60;
     prob = Math.round((scoreGuess >= 65 ? histStats.hiWr : histStats.loWr) * 100);
+    // Additional shrinkage for very small buckets: if bucket n < 10, blend more toward 50%
+    const bucketN = scoreGuess >= 65 ? (histStats.hiN || 0) : (histStats.loN || 0);
+    if (bucketN < 10) {
+      const blendFactor = bucketN / 10; // 0~1: more data = trust more
+      prob = Math.round(prob * blendFactor + 50 * (1 - blendFactor));
+    }
   } else {
     // No real data yet — use conservative rule-based estimate
     prob = 48; // deliberately conservative base (vs old 45 — a touch more realistic)
@@ -2870,8 +2934,15 @@ function computeEdge(d, signal) {
   // ── Confidence ───────────────────────────────────────────────────────────
   const conf = prob >= 65 ? 'high' : prob >= 57 ? 'med' : 'low';
 
-  // ── Data source tag ──────────────────────────────────────────────────────
-  const probSource = (histStats && histStats.n >= 10) ? `실측 (${histStats.n}건)` : '추정';
+  // ── Data source tag (with sample quality) ──────────────────────────────
+  let probSource;
+  if (histStats && histStats.n >= 30) {
+    probSource = `실측 (n=${histStats.n})`;
+  } else if (histStats && histStats.n >= 10) {
+    probSource = `~실측 (n=${histStats.n}·보정중)`;
+  } else {
+    probSource = '~추정 (표본부족)';
+  }
 
   // ── STRICT SIGNAL QUALITY GATE ────────────────────────────────────────────
   // Pass ALL three conditions to remain BUY:
@@ -3640,7 +3711,9 @@ function buildCard(d, market) {
       </div>
       <div class="bt-trades">
         ${gate.isOOS ? '<span class="oos-badge">OOS ✓</span>' : '<span class="oos-badge" style="background:rgba(255,171,0,.12);color:var(--amber)">IS only</span>'}
+        ${gate.oosSmallSample ? '<span class="oos-badge" style="background:rgba(255,171,0,.12);color:var(--amber)">OOS△표본부족</span>' : ''}
         평균수익 ${(m2.avgReturn*100).toFixed(2)}% · 평균승 +${(m2.avgWin*100).toFixed(1)}% · 평균패 ${(m2.avgLoss*100).toFixed(1)}% · ${updAt}
+        ${rec.wfReport ? `<br><span style="color:${rec.wfReport.passRatio >= 0.6 ? 'var(--green)' : 'var(--red)'}">WF ${(rec.wfReport.passRatio*100).toFixed(0)}%통과(${rec.wfReport.passCount}/${rec.wfReport.windowCount}창) C:${rec.wfReport.consistency.toFixed(1)}</span>` : ''}
         ${rec.dataValid && !rec.dataValid.ok ? `<br><span style="color:var(--amber)">⚠ 데이터: ${rec.dataValid.issues.join(', ')}</span>` : ''}
         ${gate.failReasons?.length ? `<br><span style="color:var(--red)">✗ 차단: ${gate.failReasons.join(' · ')}</span>` : ''}
       </div>
@@ -3839,8 +3912,8 @@ function buildCard(d, market) {
       // Prob source badge
       const srcBadge = edge.probSource
         ? `<span style="font-size:8px;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:middle;
-            background:${edge.probSource.startsWith('실측') ? 'rgba(0,230,118,.12)' : 'rgba(255,171,0,.12)'};
-            color:${edge.probSource.startsWith('실측') ? 'var(--green)' : 'var(--amber)'}">
+            background:${edge.probSource.startsWith('실측') ? 'rgba(0,230,118,.12)' : edge.probSource.startsWith('~실측') ? 'rgba(68,136,255,.12)' : 'rgba(255,171,0,.12)'};
+            color:${edge.probSource.startsWith('실측') ? 'var(--green)' : edge.probSource.startsWith('~실측') ? 'var(--blue)' : 'var(--amber)'}">
             ${edge.probSource.startsWith('실측') ? '✓ ' : '~'} ${edge.probSource}</span>` : '';
 
       return `<div class="edge-panel">
@@ -4570,24 +4643,26 @@ function renderLog() {
       ? (withOutcome.filter(s=>s.outcome>0).reduce((s,e)=>s+e.outcome,0) / wins * 100).toFixed(1) : null;
     const avgLossAmt = losses > 0
       ? (withOutcome.filter(s=>s.outcome<=0).reduce((s,e)=>s+e.outcome,0) / losses * 100).toFixed(1) : null;
-    // Calibration status
-    const calibrated = withOutcome.length >= 10;
-    const calibStatus = calibrated
-      ? `<span style="color:var(--green);font-size:9px">✓ 실데이터로 승률 보정 중 (${withOutcome.length}건)</span>`
-      : `<span style="color:var(--amber);font-size:9px">⚠ 승률 보정 대기 중 (${withOutcome.length}/10건 필요)</span>`;
+    // Calibration status (3-tier: <10 추정, 10-29 보정중, 30+ 실측)
+    const calibTier = withOutcome.length >= 30 ? 'full' : withOutcome.length >= 10 ? 'partial' : 'none';
+    const calibStatus = calibTier === 'full'
+      ? `<span style="color:var(--green);font-size:9px">✓ 실측 보정 활성 (n=${withOutcome.length})</span>`
+      : calibTier === 'partial'
+      ? `<span style="color:var(--blue);font-size:9px">~ 베이지안 보정 중 (${withOutcome.length}/30건)</span>`
+      : `<span style="color:var(--amber);font-size:9px">⚠ 추정 모드 (${withOutcome.length}/10건 필요)</span>`;
 
     // Expected value (actual)
     const actualEV = withOutcome.length > 0
       ? ((wins/withOutcome.length) * (avgWinAmt/100) + (losses/withOutcome.length) * (avgLossAmt/100) * (avgLossAmt ? 1 : 0))
       : null;
 
-    const calibPct = Math.min(100, Math.round((withOutcome.length / 10) * 100));
-    const calibBarClass = calibrated ? 'done' : 'partial';
+    const calibPct = Math.min(100, Math.round((withOutcome.length / 30) * 100));
+    const calibBarClass = calibTier === 'full' ? 'done' : 'partial';
 
     sumEl.innerHTML = `<div class="calib-bar-wrap">
       <div class="calib-bar-row">
         <span>📊 승률 보정 진행도</span>
-        <span>${withOutcome.length}/10건 ${calibrated ? '✓ 실데이터 보정 활성화' : '— 10건 달성 시 자동 보정 시작'}</span>
+        <span>${withOutcome.length}/30건 ${calibTier === 'full' ? '✓ 완전 실측 보정' : calibTier === 'partial' ? '~ 베이지안 보정 중' : '— 10건 달성 시 보정 시작'}</span>
       </div>
       <div class="calib-track"><div class="calib-fill ${calibBarClass}" style="width:${calibPct}%"></div></div>
     </div>
