@@ -238,6 +238,13 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .log-sum-val{font-size:18px;font-weight:700;color:#fff}
 .log-sum-lbl{font-size:9px;color:var(--dim2);margin-top:3px}
 
+/* calibration progress bar */
+.calib-bar-wrap{margin-bottom:12px;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px}
+.calib-bar-row{display:flex;justify-content:space-between;font-size:9px;margin-bottom:5px}
+.calib-track{height:5px;background:var(--bg4);border-radius:10px;overflow:hidden}
+.calib-fill{height:100%;border-radius:10px;transition:width .4s ease}
+.calib-fill.done{background:var(--green)}.calib-fill.partial{background:var(--amber)}
+
 /* pattern panel */
 .pattern-panel{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
 .pat-item{background:var(--bg3);border-radius:5px;padding:7px 10px;border-left:3px solid}
@@ -778,6 +785,21 @@ tbody tr.sold-row{opacity:.65}
       <div class="rule-row"><span class="rule-num">R19</span>1종목 최대 10% · 1섹터 최대 25%</div>
       <div class="rule-row"><span class="rule-num">R22</span>손실 종목 물타기 금지 — 수익 종목에만 추가매수</div>
     </div>
+    <div class="rules-panel" style="border-color:rgba(68,136,255,.3);background:rgba(68,136,255,.04)">
+      <h4>🧠 확률 엔진 작동 방식</h4>
+      <div class="rule-row" style="flex-direction:column;gap:4px">
+        <b style="color:var(--amber)">초기 단계 (결과 10건 미만)</b>
+        <span>룰 기반 추정 승률 사용 — 200일선·RSI·MACD 등 20개 지표로 계산 (보수적 적용)</span>
+      </div>
+      <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
+        <b style="color:var(--green)">보정 단계 (결과 10건 이상)</b>
+        <span>실제 5일 수익률 데이터로 승률 자동 재보정 — 점수 구간별 실측값 사용</span>
+      </div>
+      <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
+        <b style="color:var(--text2)">BUY 신호 통과 조건 (전부 충족)</b>
+        <span>① 기대값 > 0 &nbsp; ② 승률 ≥ 55% &nbsp; ③ R/R ≥ 1.5 &nbsp; ④ 약세장이면 승률 ≥ 65%</span>
+      </div>
+    </div>
     <br>
     <button class="btn-ok" onclick="document.getElementById('rules-modal').classList.remove('show')">닫기</button>
   </div>
@@ -960,13 +982,61 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPortfolio();
   renderLog();
   updateMarketRegime(); // fetch SPY + KODEX200 for regime
+  autoUpdateOutcomes(); // auto-fetch outcomes for past signals
   runScreener();
   pollTimer = setInterval(() => {
     runScreener(true);
     updatePortfolio(true);
     updateMarketRegime();
+    autoUpdateOutcomes();
   }, RULES.pollInterval);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTO-OUTCOME TRACKER
+// For each logged signal 5+ days old without an outcome recorded,
+// fetch the current price and compute the actual return automatically.
+// ═══════════════════════════════════════════════════════════════════════════
+async function autoUpdateOutcomes() {
+  const FIVE_DAYS_MS  = 5 * 24 * 3600 * 1000;
+  const TEN_DAYS_MS   = 10 * 24 * 3600 * 1000;
+  let updated = false;
+
+  for (const market of ['us', 'kr']) {
+    const logs = signalLogs[market] || [];
+    for (const entry of logs) {
+      // Skip if outcome already recorded
+      if (entry.outcome != null) continue;
+      // Skip if less than 5 days old
+      const age = Date.now() - entry.time;
+      if (age < FIVE_DAYS_MS) continue;
+      // Skip if no entry price recorded
+      if (!entry.price) continue;
+
+      try {
+        const raw = await fetchStockData(entry.ticker);
+        const currentPrice = raw.curr;
+        if (!currentPrice) continue;
+
+        // Compute return from entry price
+        const ret = (currentPrice - entry.price) / entry.price;
+
+        // Store: use 10d label if ≥10 days old
+        entry.outcome    = ret;
+        entry.outcomeAge = age >= TEN_DAYS_MS ? '10d' : '5d';
+        entry.exitPrice  = currentPrice;
+        updated = true;
+      } catch(e) { /* skip on error */ }
+
+      await new Promise(r => setTimeout(r, 500)); // rate limit
+    }
+  }
+
+  if (updated) {
+    localStorage.setItem('sr2_signals', JSON.stringify(signalLogs));
+    renderLog(); // refresh log tab with new outcomes
+  }
+}
 
 // ═══════════════════════════════════════════════
 // CLOCK & MARKET STATUS
@@ -1028,72 +1098,8 @@ async function fetchWithProxy(url) {
 }
 
 // ── 텍스트 응답 전용 proxy (Naver fchart 등 non-JSON API) ─────────────────
-async function fetchWithProxyText(url) {
-  const sep = url.includes('?') ? '&' : '?';
-  const bustUrl = url + sep + '_=' + Math.floor(Date.now() / 30000);
-  for (let i = 0; i < PROXIES.length; i++) {
-    const idx = (proxyIdx + i) % PROXIES.length;
-    try {
-      const res = await fetch(PROXIES[idx] + encodeURIComponent(bustUrl), {
-        signal: AbortSignal.timeout(12000),
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      proxyIdx = idx;
-      return await res.text();
-    } catch(e) { /* try next */ }
-  }
-  throw new Error('텍스트 로드 실패');
-}
-
-// ── 네이버 금융 실시간 현재가 ────────────────────────────────────────────────
-// m.stock.naver.com/api/stock/{code}/integration — 장중 실시간, 장 마감 후 종가
-async function fetchNaverRealtime(code) {
-  const url = `https://m.stock.naver.com/api/stock/${code}/integration`;
-  try {
-    const data = await fetchWithProxy(url);
-    const d = data?.stockItemDetailResponse;
-    if (!d || d.closePrice == null) return null;
-    const p = s => parseFloat((String(s) || '0').replace(/,/g, ''));
-    return {
-      price:     p(d.closePrice),
-      prevClose: p(d.compareToPreviousPrice != null
-                    ? p(d.closePrice) - p(d.compareToPreviousPrice)
-                    : d.previousClosePrice ?? 0),
-      changePct: parseFloat(d.fluctuationsRatio ?? 0),
-      volume:    p(d.accumulatedTradingVolume ?? 0),
-      time:      new Date(),
-    };
-  } catch(e) { return null; }
-}
-
-// ── 네이버 금융 OHLCV 히스토리 ───────────────────────────────────────────────
-// fchart.stock.naver.com — 최대 260일치 일봉 (지표 계산용)
-// 응답 포맷 (파이프 구분): |YYYYMMDD|시가|고가|저가|종가|거래량
-async function fetchNaverHistory(code) {
-  const url = `https://fchart.stock.naver.com/sise.nhn?symbol=${code}&timeframe=day&count=260&requestType=0`;
-  try {
-    const text = await fetchWithProxyText(url);
-    const closes = [], opens = [], highs = [], lows = [], volumes = [];
-    for (const line of text.split('\n')) {
-      const p = line.trim().split('|');
-      // 파이프 앞뒤 빈 원소 있어서 최소 7개 필요: ['', date, o, h, l, c, v]
-      if (p.length < 7) continue;
-      const c = parseFloat(p[5]);
-      if (!c || isNaN(c)) continue;
-      opens.push(parseFloat(p[2])   || c);
-      highs.push(parseFloat(p[3])   || c);
-      lows.push(parseFloat(p[4])    || c);
-      closes.push(c);
-      volumes.push(parseInt(p[6])   || 0);
-    }
-    if (closes.length < 20) return null;
-    return { closes, opens, highs, lows, volumes };
-  } catch(e) { return null; }
-}
-
-// ── 미장 실시간 현재가 전용 fetch (v7/finance/quote) ─────────────────────────
-// v8/finance/chart의 meta보다 현재가 업데이트가 빠름
+// ── 실시간 현재가 fetch (v7/finance/quote) — 미장 & 국장 모두 Yahoo 사용 ──────
+// v8/finance/chart meta보다 업데이트가 빠름
 async function fetchRealtimeQuote(ticker) {
   const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + ticker
             + '&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketVolume,regularMarketTime';
@@ -1114,77 +1120,36 @@ async function fetchRealtimeQuote(ticker) {
 }
 
 async function fetchStockData(ticker) {
-  const isKR = /\.(KS|KQ)$/i.test(ticker);
+  // ── Yahoo Finance for both US and Korean stocks ──────────────────────────
+  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
 
-  let closes, opens, highs, lows, volumes;
-  let rtPrice, rtPrevClose, rtVolume, rtTime, priceSource, isRealtime;
+  // v7/quote (실시간) + v8/chart (히스토리) 병렬 호출
+  const [data, rtQuote] = await Promise.all([
+    fetchWithProxy(chartUrl),
+    fetchRealtimeQuote(ticker),
+  ]);
 
-  if (isKR) {
-    // ── 🇰🇷 한국 주식: 네이버 금융 ────────────────────────────────────────
-    const code = ticker.replace(/\.(KS|KQ)$/i, '');
+  const r = data?.chart?.result?.[0];
+  if (!r) throw new Error('데이터 없음');
 
-    // 실시간 현재가(네이버) + 히스토리(네이버 fchart) 병렬 호출
-    const [naverRt, naverHist] = await Promise.all([
-      fetchNaverRealtime(code),
-      fetchNaverHistory(code),
-    ]);
+  const rawQ = r.indicators.quote[0];
+  const closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1]  ?? null).filter(v=>v!=null);
+  const opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]   ?? null).filter(v=>v!=null);
+  const highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]   ?? null).filter(v=>v!=null);
+  const lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]    ?? null).filter(v=>v!=null);
+  const volumes = (rawQ.volume || []).filter(v => v != null);
 
-    if (!naverHist || naverHist.closes.length < 5) {
-      throw new Error(`네이버 데이터 없음 (${code})`);
-    }
+  // 가격 소스 결정: v7/quote > v8/chart meta > 히스토리 마지막 봉
+  const chartMetaPrice     = r.meta.regularMarketPrice ?? null;
+  const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
+  const chartMetaVolume    = r.meta.regularMarketVolume ?? null;
 
-    closes  = naverHist.closes;
-    opens   = naverHist.opens;
-    highs   = naverHist.highs;
-    lows    = naverHist.lows;
-    volumes = naverHist.volumes;
-
-    // 가격 소스 결정
-    if (naverRt?.price) {
-      rtPrice    = naverRt.price;
-      rtPrevClose = naverRt.prevClose || closes.at(-2);
-      rtVolume   = naverRt.volume  || volumes.at(-1);
-      rtTime     = naverRt.time;
-      priceSource = 'naver';    // 네이버 실시간
-    } else {
-      // 네이버 실시간 실패 → fchart 마지막 봉 사용
-      rtPrice    = closes.at(-1);
-      rtPrevClose = closes.at(-2);
-      rtVolume   = volumes.at(-1);
-      rtTime     = null;
-      priceSource = 'historical';
-    }
-
-  } else {
-    // ── 🇺🇸 미국 주식: Yahoo Finance ────────────────────────────────────────
-    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
-    const [data, rtQuote] = await Promise.all([
-      fetchWithProxy(chartUrl),
-      fetchRealtimeQuote(ticker),
-    ]);
-
-    const r = data?.chart?.result?.[0];
-    if (!r) throw new Error('Yahoo 데이터 없음');
-
-    const rawQ = r.indicators.quote[0];
-    closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1]  ?? null).filter(v=>v!=null);
-    opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]   ?? null).filter(v=>v!=null);
-    highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]   ?? null).filter(v=>v!=null);
-    lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]    ?? null).filter(v=>v!=null);
-    volumes = (rawQ.volume || []).filter(v => v != null);
-
-    const chartMetaPrice    = r.meta.regularMarketPrice ?? null;
-    const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
-    const chartMetaVolume   = r.meta.regularMarketVolume ?? null;
-
-    rtPrice    = rtQuote?.price    ?? chartMetaPrice    ?? closes.at(-1);
-    rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
-    rtVolume   = rtQuote?.volume   ?? chartMetaVolume   ?? volumes.at(-1);
-    rtTime     = rtQuote?.time ?? null;
-    priceSource = rtQuote?.price != null ? 'quote' : chartMetaPrice != null ? 'meta' : 'historical';
-  }
-
-  isRealtime = priceSource !== 'historical';
+  const rtPrice     = rtQuote?.price    ?? chartMetaPrice    ?? closes.at(-1);
+  const rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
+  const rtVolume    = rtQuote?.volume   ?? chartMetaVolume   ?? volumes.at(-1);
+  const rtTime      = rtQuote?.time ?? null;
+  const priceSource = rtQuote?.price != null ? 'quote' : chartMetaPrice != null ? 'meta' : 'historical';
+  const isRealtime  = priceSource !== 'historical';
 
   // 실시간 가격으로 closes/volumes 마지막 값 교체 → 모든 지표가 최신 가격 반영
   if (isRealtime && closes.length > 0) {
@@ -1377,9 +1342,9 @@ async function fetchStockData(ticker) {
     pattern: dataLen >= 60,    // 차트 패턴 (60일 필요)
     candle:  dataLen >= 5,     // 캔들 패턴
     realtime: isRealtime,      // 실시간 가격 여부
-    priceSource,               // 'naver' | 'quote' | 'meta' | 'historical'
+    priceSource,               // 'quote' | 'meta' | 'historical'
     rtTime,                    // 마지막 체결 시각
-    isKR: /\.(KS|KQ)$/i.test(ticker), // 한국 주식 여부
+    isKR: /\.KS$/i.test(ticker) || /\.KQ$/i.test(ticker), // 한국 주식 여부
     // 전체 신뢰도 등급
     grade: dataLen >= 200 ? 'A' : dataLen >= 100 ? 'B' : dataLen >= 60 ? 'C' : 'D',
     // 신뢰도 설명
@@ -1991,99 +1956,136 @@ function renderRegimeBar() {
 // EDGE ENGINE — Score → Win Probability + Expected Return + R/R
 // Based on empirical weights from rule effectiveness research
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// HISTORICAL WIN RATE ENGINE
+// Pulls real outcomes from signalLogs to calibrate probability
+// ═══════════════════════════════════════════════════════════════════════════
+function getHistoricalStats(market) {
+  const logs = (signalLogs[market] || []).filter(e => e.outcome != null);
+  if (logs.length < 5) return null; // not enough data yet
+
+  const wins     = logs.filter(e => e.outcome > 0);
+  const winRate  = wins.length / logs.length;
+  const avgWin   = wins.length   ? wins.reduce((s,e)=>s+e.outcome,0) / wins.length : 0.042;
+  const losses   = logs.filter(e => e.outcome <= 0);
+  const avgLoss  = losses.length ? losses.reduce((s,e)=>s+e.outcome,0) / losses.length : -0.021;
+  const avgRet   = logs.reduce((s,e)=>s+e.outcome,0) / logs.length;
+  const n        = logs.length;
+
+  // Score-to-outcome correlation: does a higher score correlate with higher return?
+  // Bucket into low(<65) / high(>=65) score zones
+  const hiScore  = logs.filter(e => (e.score||0) >= 65);
+  const loScore  = logs.filter(e => (e.score||0) < 65);
+  const hiWr     = hiScore.length ? hiScore.filter(e=>e.outcome>0).length / hiScore.length : winRate;
+  const loWr     = loScore.length ? loScore.filter(e=>e.outcome>0).length / loScore.length : winRate;
+
+  return { winRate, avgWin, avgLoss, avgRet, n, hiWr, loWr };
+}
+
 function computeEdge(d, signal) {
-  // ── Win probability (base 45%) ──────────────────────────────────────────
-  let prob = 45;
+  const market = activeMarket;
+  const histStats = getHistoricalStats(market);
 
-  // Trend layer (most predictive)
-  if (d.aboveMA200 === true)  prob += 8;
-  else if (d.aboveMA200 === false) prob -= 6;
-  if (d.aboveMA50 === true)   prob += 5;
-  else if (d.aboveMA50 === false) prob -= 3;
-  if (d.goldenCross)          prob += 5;
-  else if (d.deathCross)      prob -= 5;
+  // ── Win probability ─────────────────────────────────────────────────────
+  // If we have real historical data (>=5 outcomes), anchor to that.
+  // Otherwise use rule-based estimate.
+  let prob;
 
-  // Entry quality
-  if (d.nearMA)               prob += 4;
-  if (d.priceRunPct !== null && d.priceRunPct > 0.15) prob -= 6; // FOMO
+  if (histStats && histStats.n >= 10) {
+    // Real data available — use score zone to pick base rate
+    const scoreGuess = d.score || 60;
+    prob = Math.round((scoreGuess >= 65 ? histStats.hiWr : histStats.loWr) * 100);
+  } else {
+    // No real data yet — use conservative rule-based estimate
+    prob = 48; // deliberately conservative base (vs old 45 — a touch more realistic)
 
-  // RSI zone
-  if (d.rsi !== null) {
-    if (d.rsi >= 35 && d.rsi <= 55) prob += 5;
-    else if (d.rsi < 30)            prob += 3;
-    else if (d.rsi > 75)            prob -= 7;
-    else if (d.rsi > 65)            prob -= 3;
+    if (d.aboveMA200 === true)  prob += 7;
+    else if (d.aboveMA200 === false) prob -= 7;
+    if (d.aboveMA50 === true)   prob += 4;
+    else if (d.aboveMA50 === false) prob -= 3;
+    if (d.goldenCross)          prob += 5;
+    else if (d.deathCross)      prob -= 6;
+
+    if (d.nearMA)               prob += 3;
+    if (d.priceRunPct !== null && d.priceRunPct > 0.15) prob -= 7;
+
+    if (d.rsi !== null) {
+      if (d.rsi >= 35 && d.rsi <= 55) prob += 4;
+      else if (d.rsi < 30)            prob += 2;
+      else if (d.rsi > 75)            prob -= 8;
+      else if (d.rsi > 65)            prob -= 3;
+    }
+    if (d.volRatio !== null) {
+      if (d.volRatio >= 1.5) prob += 4;
+      else if (d.volRatio < 0.7) prob -= 3;
+    }
+    if (d.macd) {
+      if (d.macd.bullCross)      prob += 5;
+      else if (d.macd.bearCross) prob -= 6;
+      else if (d.macd.aboveZero && d.macd.histRising) prob += 3;
+      if (d.macd.bullDiv)  prob += 3;
+      else if (d.macd.bearDiv) prob -= 4;
+    }
+    if (d.bBands) {
+      if (d.bBands.pctB < 0.15) prob += 3;
+      else if (d.bBands.pctB > 0.85) prob -= 4;
+    }
+    if (d.patterns && d.patterns.length > 0) {
+      const pScore = d.patterns.reduce((s,p) => s + (p.score||0), 0);
+      prob += Math.max(-5, Math.min(6, pScore * 0.4));
+    }
+    if (d.obv) {
+      if (d.obv.bullDiv) prob += 3;
+      else if (d.obv.bearDiv) prob -= 3;
+    }
   }
 
-  // Volume confirmation
-  if (d.volRatio !== null) {
-    if (d.volRatio >= 1.5) prob += 5;
-    else if (d.volRatio < 0.7) prob -= 3;
-  }
-
-  // MACD momentum
-  if (d.macd) {
-    if (d.macd.bullCross)      prob += 6;
-    else if (d.macd.bearCross) prob -= 6;
-    else if (d.macd.aboveZero && d.macd.histRising) prob += 3;
-    if (d.macd.bullDiv) prob += 4;
-    else if (d.macd.bearDiv) prob -= 4;
-  }
-
-  // Bollinger
-  if (d.bBands) {
-    if (d.bBands.pctB < 0.15) prob += 4;
-    else if (d.bBands.pctB > 0.85) prob -= 4;
-    if (d.bBands.squeeze) prob += 2;
-  }
-
-  // Pattern bonus
-  if (d.patterns && d.patterns.length > 0) {
-    const pScore = d.patterns.reduce((s,p) => s + (p.score||0), 0);
-    prob += Math.max(-6, Math.min(8, pScore * 0.5));
-  }
-
-  // OBV
-  if (d.obv) {
-    if (d.obv.bullDiv) prob += 3;
-    else if (d.obv.bearDiv) prob -= 3;
-  }
-
-  // Market regime adjustment
-  const regime = activeMarket === 'us' ? marketRegime.us : marketRegime.kr;
+  // Market regime — applied regardless of data source
+  const regime = market === 'us' ? marketRegime.us : marketRegime.kr;
   if (regime === 'bear')    prob -= 12;
-  else if (regime === 'bull') prob += 4;
+  else if (regime === 'bull') prob += 3;
 
   prob = Math.max(20, Math.min(85, Math.round(prob)));
 
-  // ── Expected return calculation ─────────────────────────────────────────
-  // Based on win prob, avg win (+4%), avg loss (-2%) per internal model
-  const avgWin = 0.042;  // average winner ~4.2%
-  const avgLoss = -0.021; // average loser ~-2.1%
+  // ── Expected return ─────────────────────────────────────────────────────
+  // Use real avg win/loss if available, else conservative defaults
+  const avgWin  = histStats ? histStats.avgWin  : 0.038;  // 3.8% default (conservative)
+  const avgLoss = histStats ? histStats.avgLoss : -0.025;  // -2.5% default (conservative)
   const expectedReturn = (prob / 100) * avgWin + ((100 - prob) / 100) * avgLoss;
 
-  // ── Risk/Reward ratio ────────────────────────────────────────────────────
-  const stopPct = d.atr ? d.atr.stopPct : -0.08; // 2×ATR or -8% default
-  const riskAmt = Math.abs(stopPct);
-  const rewardT1 = riskAmt * 2;   // 2R target
-  const rewardT2 = riskAmt * 3.5; // 3.5R stretch
-  const rr = rewardT1 / riskAmt;
+  // ── Risk/Reward ──────────────────────────────────────────────────────────
+  const stopPct  = d.atr ? d.atr.stopPct : -0.08;
+  const riskAmt  = Math.abs(stopPct);
+  const rewardT1 = riskAmt * 2;
+  const rewardT2 = riskAmt * 3.5;
+  const rr       = rewardT1 / riskAmt; // always 2:1 by construction
 
-  // ── Confidence tier ─────────────────────────────────────────────────────
-  const conf = prob >= 65 ? 'high' : prob >= 55 ? 'med' : 'low';
+  // ── Confidence ───────────────────────────────────────────────────────────
+  const conf = prob >= 65 ? 'high' : prob >= 57 ? 'med' : 'low';
 
-  // ── Signal quality gate ──────────────────────────────────────────────────
-  // Filter: prob < 52% OR R/R < 1.5 → downgrade to 'watch'
+  // ── Data source tag ──────────────────────────────────────────────────────
+  const probSource = (histStats && histStats.n >= 10) ? `실측 (${histStats.n}건)` : '추정';
+
+  // ── STRICT SIGNAL QUALITY GATE ────────────────────────────────────────────
+  // Pass ALL three conditions to remain BUY:
+  //   1. Expected value > 0  (probability * avgWin + (1-prob) * avgLoss > 0)
+  //   2. Win probability ≥ 55% (conservative floor)
+  //   3. R/R ≥ 1.5
+  //   4. Not in bear market (unless very high prob)
   let filteredSignal = signal;
-  if ((signal === 'buy' || signal === 'strong-buy') && (prob < 52 || rr < 1.5)) {
-    filteredSignal = 'watch';
-  }
-  // Bear market: require higher prob for buys
-  if (regime === 'bear' && (signal === 'buy' || signal === 'strong-buy') && prob < 60) {
-    filteredSignal = 'watch';
+  if (signal === 'buy' || signal === 'strong-buy') {
+    const passEV   = expectedReturn > 0;
+    const passProb = prob >= 55;
+    const passRR   = rr >= 1.5;
+    const passBear = regime !== 'bear' || prob >= 65;
+
+    if (!passEV || !passProb || !passRR || !passBear) {
+      filteredSignal = 'watch';
+    }
   }
 
-  return { prob, expectedReturn, rr, conf, rewardT1, rewardT2, riskAmt, filteredSignal, regime };
+  return { prob, expectedReturn, rr, conf, rewardT1, rewardT2, riskAmt,
+           filteredSignal, regime, histStats, probSource };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2611,8 +2613,10 @@ async function runScreener(silent = false) {
           score: sig.score, price: raw.curr,
           prob: sig.edge?.prob, expectedReturn: sig.edge?.expectedReturn,
           rr: sig.edge?.rr, conf: sig.edge?.conf,
-          setup: sig.setup,
-          reasons: sig.reasons, time: Date.now(),
+          probSource: sig.edge?.probSource,
+          regime: sig.edge?.regime,
+          reasons: (sig.reasons||[]).slice(0,3).map(r=>r.text),
+          time: Date.now(),
         });
       }
     } catch(e) {
@@ -2769,13 +2773,12 @@ function buildCard(d, market) {
       ? cov.rtTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' })
       : null;
     const srcLabel = {
-      naver:      ['var(--green)',  'rgba(0,230,118,.1)',  'rgba(0,230,118,.3)',  '●', `네이버 실시간${rtTimeStr ? ' ' + rtTimeStr : ''}`],
       quote:      ['var(--green)',  'rgba(0,230,118,.1)',  'rgba(0,230,118,.3)',  '●', `Yahoo 실시간${rtTimeStr ? ' ' + rtTimeStr : ''}`],
       meta:       ['var(--amber)',  'rgba(255,171,0,.1)',  'rgba(255,171,0,.3)',  '⏱', '준실시간'],
       historical: ['var(--red)',    'rgba(255,61,90,.1)',  'rgba(255,61,90,.3)',  '✗', '전일종가'],
     }[cov.priceSource] ?? ['var(--dim2)', 'transparent', 'var(--border)', '?', '알수없음'];
     const [srcColor, srcBg, srcBdr, srcIcon, srcText] = srcLabel;
-    const isLive = cov.priceSource === 'naver' || cov.priceSource === 'quote';
+    const isLive = cov.priceSource === 'quote';
     const rtBadge = `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
         background:${srcBg};color:${srcColor};border:1px solid ${srcBdr};margin-left:5px">
         ${isLive ? `<span style="display:inline-block;width:5px;height:5px;border-radius:50%;
@@ -2882,20 +2885,42 @@ function buildCard(d, market) {
           <span class="pos-val">${setup.shares > 0 ? setup.shares.toLocaleString() + '주' : '계산불가'}</span>
         </div>` : '';
 
+      // Filter pass/fail breakdown
+      const filterFails = [];
+      if (edge.expectedReturn <= 0)                            filterFails.push('기대값≤0');
+      if (edge.prob < 55)                                      filterFails.push('승률<55%');
+      if (edge.rr < 1.5)                                       filterFails.push('R/R<1.5');
+      if (edge.regime === 'bear' && edge.prob < 65)           filterFails.push('약세장+승률부족');
+      const filterHtml = filterFails.length > 0
+        ? `<div style="margin-top:6px;padding:4px 8px;background:rgba(255,171,0,.07);border-left:2px solid var(--amber);border-radius:2px;font-size:9px;color:var(--amber)">
+            ⚡ 필터 미통과: ${filterFails.join(' · ')} → 관찰 전환</div>`
+        : (sig === 'buy' || sig === 'strong-buy')
+          ? `<div style="margin-top:6px;padding:4px 8px;background:rgba(0,230,118,.05);border-left:2px solid var(--green);border-radius:2px;font-size:9px;color:var(--green)">
+              ✓ 필터 통과: 기대값>0 · 승률≥55% · R/R≥1.5 · 시장 우호적</div>`
+          : '';
+
+      // Prob source badge
+      const srcBadge = edge.probSource
+        ? `<span style="font-size:8px;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:middle;
+            background:${edge.probSource.startsWith('실측') ? 'rgba(0,230,118,.12)' : 'rgba(255,171,0,.12)'};
+            color:${edge.probSource.startsWith('실측') ? 'var(--green)' : 'var(--amber)'}">
+            ${edge.probSource.startsWith('실측') ? '✓ ' : '~'} ${edge.probSource}</span>` : '';
+
       return \`<div class="edge-panel">
         <div class="edge-top">
           <div class="edge-left">
-            <div class="edge-prob \${probCls}">\${edge.prob}%</div>
+            <div class="edge-prob \${probCls}">\${edge.prob}%\${srcBadge}</div>
             <div class="edge-sub">예측 승률</div>
             <span class="edge-conf \${edge.conf}">\${confLbl}</span>
           </div>
           <div class="edge-right">
             <div class="edge-er \${edge.expectedReturn >= 0 ? 'pos' : 'neg'}">\${erSign}\${erPct}% 기대수익</div>
             <div class="edge-rr \${rrCls}">R/R = 1 : \${edge.rr.toFixed(1)}</div>
-            <div style="font-size:9px;color:var(--dim2);margin-top:3px">점수 \${score}pt · 레짐 \${{ bull:'📈강세', neutral:'➡️횡보', bear:'📉약세', loading:'--' }[edge.regime]||'--'}</div>
+            <div style="font-size:9px;color:var(--dim2);margin-top:3px">점수 \${score}pt · \${{ bull:'📈강세장', neutral:'➡️횡보장', bear:'📉약세장', loading:'--' }[edge.regime]||'--'}</div>
           </div>
         </div>
         \${setupHtml}
+        \${filterHtml}
       </div>\`;
     })() : `<div class="score-bar-wrap">
       <div class="score-row">
@@ -3588,30 +3613,54 @@ function renderLog() {
     const total = sigs.length;
     const withOutcome = sigs.filter(s => s.outcome != null);
     const wins = withOutcome.filter(s => s.outcome > 0).length;
+    const losses = withOutcome.filter(s => s.outcome <= 0).length;
     const winRate = withOutcome.length > 0 ? Math.round((wins / withOutcome.length) * 100) : null;
     const avgReturn = withOutcome.length > 0
       ? (withOutcome.reduce((s,e) => s + (e.outcome||0), 0) / withOutcome.length * 100).toFixed(1)
       : null;
-    const avgProb = total > 0 ? Math.round(sigs.reduce((s,e) => s + (e.prob||50), 0) / total) : null;
+    const avgWinAmt = wins > 0
+      ? (withOutcome.filter(s=>s.outcome>0).reduce((s,e)=>s+e.outcome,0) / wins * 100).toFixed(1) : null;
+    const avgLossAmt = losses > 0
+      ? (withOutcome.filter(s=>s.outcome<=0).reduce((s,e)=>s+e.outcome,0) / losses * 100).toFixed(1) : null;
+    // Calibration status
+    const calibrated = withOutcome.length >= 10;
+    const calibStatus = calibrated
+      ? \`<span style="color:var(--green);font-size:9px">✓ 실데이터로 승률 보정 중 (\${withOutcome.length}건)</span>\`
+      : \`<span style="color:var(--amber);font-size:9px">⚠ 승률 보정 대기 중 (\${withOutcome.length}/10건 필요)</span>\`;
 
-    sumEl.innerHTML = `<div class="log-summary">
+    // Expected value (actual)
+    const actualEV = withOutcome.length > 0
+      ? ((wins/withOutcome.length) * (avgWinAmt/100) + (losses/withOutcome.length) * (avgLossAmt/100) * (avgLossAmt ? 1 : 0))
+      : null;
+
+    const calibPct = Math.min(100, Math.round((withOutcome.length / 10) * 100));
+    const calibBarClass = calibrated ? 'done' : 'partial';
+
+    sumEl.innerHTML = \`<div class="calib-bar-wrap">
+      <div class="calib-bar-row">
+        <span>📊 승률 보정 진행도</span>
+        <span>\${withOutcome.length}/10건 \${calibrated ? '✓ 실데이터 보정 활성화' : '— 10건 달성 시 자동 보정 시작'}</span>
+      </div>
+      <div class="calib-track"><div class="calib-fill \${calibBarClass}" style="width:\${calibPct}%"></div></div>
+    </div>
+    <div class="log-summary">
       <div class="log-sum-card">
-        <div class="log-sum-val">${total}</div>
-        <div class="log-sum-lbl">총 신호 수</div>
+        <div class="log-sum-val">\${total}</div>
+        <div class="log-sum-lbl">총 신호 / \${withOutcome.length}건 결과</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:${winRate==null?'var(--dim2)':winRate>=55?'var(--green)':winRate>=45?'var(--amber)':'var(--red)'}">${winRate != null ? winRate + '%' : '--'}</div>
-        <div class="log-sum-lbl">실현 승률 (${withOutcome.length}건)</div>
+        <div class="log-sum-val" style="color:\${winRate==null?'var(--dim2)':winRate>=55?'var(--green)':winRate>=45?'var(--amber)':'var(--red)'}">\${winRate != null ? winRate + '%' : '--'}</div>
+        <div class="log-sum-lbl">실현 승률 (\${wins}승 \${losses}패)</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:${avgReturn==null?'var(--dim2)':parseFloat(avgReturn)>=0?'var(--green)':'var(--red)'}">${avgReturn != null ? (parseFloat(avgReturn)>=0?'+':'') + avgReturn + '%' : '--'}</div>
+        <div class="log-sum-val" style="color:\${avgReturn==null?'var(--dim2)':parseFloat(avgReturn)>=0?'var(--green)':'var(--red)'}">\${avgReturn != null ? (parseFloat(avgReturn)>=0?'+':'') + avgReturn + '%' : '--'}</div>
         <div class="log-sum-lbl">평균 수익률</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:var(--amber)">${avgProb != null ? avgProb + '%' : '--'}</div>
-        <div class="log-sum-lbl">평균 예측 승률</div>
+        <div class="log-sum-val" style="color:var(--green)">\${avgWinAmt != null ? '+' + avgWinAmt + '%' : '--'}</div>
+        <div class="log-sum-lbl">평균 수익 / <span style="color:var(--red)">\${avgLossAmt != null ? avgLossAmt + '%' : '--'}</span> 손실</div>
       </div>
-    </div>`;
+    </div>\`;
   }
 
   if (!sigs.length && !alarms.length) {
@@ -3628,10 +3677,16 @@ function renderLog() {
     const probCls = (e.prob||0) >= 65 ? 'var(--green)' : (e.prob||0) >= 55 ? 'var(--amber)' : 'var(--dim2)';
     const erVal = e.expectedReturn != null ? ((e.expectedReturn*100)>=0?'+':'') + (e.expectedReturn*100).toFixed(1) + '%' : '--';
     const erCls = e.expectedReturn >= 0 ? 'var(--green)' : 'var(--red)';
+    const age = Math.round((Date.now() - e.time) / (24*3600*1000));
     const outHtml = e.outcome != null
-      ? `<div class="slog-outcome ${e.outcome > 0 ? 'win' : 'loss'}">결과: ${e.outcome > 0 ? '▲ +' : '▼ '}${(e.outcome*100).toFixed(1)}%</div>`
+      ? `<div class="slog-outcome ${e.outcome > 0 ? 'win' : 'loss'}">
+          <span>${e.outcome > 0 ? '▲ +' : '▼ '}${(e.outcome*100).toFixed(1)}%</span>
+          <span style="font-size:9px;margin-left:8px;opacity:.7">
+            ${e.outcomeAge || '수동'} 결과 ${e.exitPrice ? '· 청산가 ' + e.exitPrice.toLocaleString() : ''}
+          </span>
+        </div>`
       : `<div class="slog-outcome pending" style="display:flex;justify-content:space-between;align-items:center">
-          <span>결과 미기록 (포트폴리오 매도 시 자동 반영)</span>
+          <span>${age < 5 ? `⏳ ${5-age}일 후 자동 측정 예정` : '결과 자동 조회 중...'}</span>
           <button onclick="logOutcome('${m}',${idx})" style="font-size:9px;padding:2px 7px;background:none;border:1px solid var(--border2);border-radius:3px;color:var(--text2);cursor:pointer">수동 입력</button>
         </div>`;
     return `<div class="slog-entry">
