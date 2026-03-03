@@ -3440,15 +3440,85 @@ const _wlLookup = {};
   (WATCHLISTS[m] || []).forEach(s => { _wlLookup[s.ticker] = s; });
 });
 
+// ── Extra names for screener pool tickers not in WATCHLISTS ──────────────
+const _extraNames = {
+  // KR
+  '034730.KS': {name:'SK',             sector:'지주'},
+  '263750.KS': {name:'펄어비스',        sector:'게임'},
+  // US
+  'AAL':  {name:'American Airlines',  sector:'Airlines'},
+  'AFRM': {name:'Affirm',             sector:'Fintech'},
+  'ANET': {name:'Arista Networks',     sector:'Networking'},
+  'APP':  {name:'AppLovin',           sector:'Ad Tech'},
+  'AXON': {name:'Axon Enterprise',    sector:'Defense'},
+  'BB':   {name:'BlackBerry',         sector:'Software'},
+  'BILL': {name:'Bill Holdings',      sector:'Fintech'},
+  'BRZE': {name:'Braze',              sector:'Software'},
+  'CCL':  {name:'Carnival',           sector:'Cruise'},
+  'CEG':  {name:'Constellation Energy',sector:'Energy'},
+  'CELH': {name:'Celsius Holdings',   sector:'Beverages'},
+  'CFLT': {name:'Confluent',          sector:'Data'},
+  'DAL':  {name:'Delta Air Lines',    sector:'Airlines'},
+  'DASH': {name:'DoorDash',           sector:'Delivery'},
+  'DDOG': {name:'Datadog',            sector:'Cloud'},
+  'DKNG': {name:'DraftKings',         sector:'Gaming'},
+  'DNA':  {name:'Ginkgo Bioworks',    sector:'Biotech'},
+  'DUOL': {name:'Duolingo',           sector:'EdTech'},
+  'ESTC': {name:'Elastic',            sector:'Search'},
+  'FTNT': {name:'Fortinet',           sector:'Cybersecurity'},
+  'GDDY': {name:'GoDaddy',            sector:'Internet'},
+  'GTLB': {name:'GitLab',             sector:'DevOps'},
+  'HOOD': {name:'Robinhood',          sector:'Fintech'},
+  'HUBS': {name:'HubSpot',            sector:'SaaS'},
+  'HWM':  {name:'Howmet Aerospace',   sector:'Aerospace'},
+  'IONQ': {name:'IonQ',               sector:'Quantum'},
+  'IOT':  {name:'Samsara',            sector:'IoT'},
+  'LI':   {name:'Li Auto',            sector:'EV'},
+  'LYFT': {name:'Lyft',               sector:'Rideshare'},
+  'MARA': {name:'Marathon Digital',    sector:'Crypto'},
+  'MDB':  {name:'MongoDB',            sector:'Database'},
+  'MNDY': {name:'monday.com',         sector:'SaaS'},
+  'NET':  {name:'Cloudflare',         sector:'CDN'},
+  'NIO':  {name:'NIO',                sector:'EV'},
+  'NOK':  {name:'Nokia',              sector:'Telecom'},
+  'NU':   {name:'Nu Holdings',        sector:'Fintech'},
+  'PARA': {name:'Paramount Global',   sector:'Media'},
+  'PCOR': {name:'Procore Tech',       sector:'Construction'},
+  'PGR':  {name:'Progressive',        sector:'Insurance'},
+  'PLUG': {name:'Plug Power',         sector:'Hydrogen'},
+  'RGTI': {name:'Rigetti Computing',  sector:'Quantum'},
+  'RIOT': {name:'Riot Platforms',      sector:'Crypto'},
+  'ROKU': {name:'Roku',               sector:'Streaming'},
+  'S':    {name:'SentinelOne',        sector:'Cybersecurity'},
+  'SIRI': {name:'Sirius XM',          sector:'Media'},
+  'SNOW': {name:'Snowflake',          sector:'Cloud'},
+  'SOFI': {name:'SoFi Technologies',  sector:'Fintech'},
+  'TEAM': {name:'Atlassian',          sector:'SaaS'},
+  'TOST': {name:'Toast',              sector:'Fintech'},
+  'TRGP': {name:'Targa Resources',    sector:'Energy'},
+  'TTD':  {name:'The Trade Desk',     sector:'Ad Tech'},
+  'UPST': {name:'Upstart',            sector:'AI/Fintech'},
+  'VST':  {name:'Vistra',             sector:'Energy'},
+  'WAB':  {name:'Wabtec',             sector:'Industrial'},
+  'WBD':  {name:'Warner Bros Discovery',sector:'Media'},
+  'WISH': {name:'Wish',               sector:'E-commerce'},
+  'XPEV': {name:'XPeng',              sector:'EV'},
+  'ZS':   {name:'Zscaler',            sector:'Cybersecurity'},
+};
+
+function _lookupName(ticker) {
+  return _wlLookup[ticker] || _extraNames[ticker] || null;
+}
+
 async function fetchUSScreener(screenerId) {
   const pool = US_SCREENER_POOLS[screenerId] || US_SCREENER_POOLS.gainers;
   const labels = { gainers:'🚀 당일 급등', volume:'📊 거래량 급증', growth:'📈 성장주', '52wk':'🏆 신고가' };
   return pool.map(ticker => {
-    const wl = _wlLookup[ticker];
+    const info = _lookupName(ticker);
     return {
       ticker,
-      name:   wl?.name || ticker,
-      sector: wl?.sector || 'Other',
+      name:   info?.name || ticker,
+      sector: info?.sector || 'Other',
       note:   labels[screenerId] || screenerId,
       _src:   screenerId,
     };
@@ -3459,11 +3529,11 @@ async function fetchKRScreener(screenerId) {
   const cfg = YF_KR_CFG[screenerId];
   const pool = KR_SCREENER_POOLS[screenerId] || KR_SCREENER_POOLS.gainers;
   return pool.map(ticker => {
-    const wl = _wlLookup[ticker];
+    const info = _lookupName(ticker);
     return {
       ticker,
-      name:   wl?.name || ticker,
-      sector: wl?.sector || '기타',
+      name:   info?.name || ticker,
+      sector: info?.sector || '기타',
       note:   cfg.label,
       _src:   screenerId,
     };
