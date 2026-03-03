@@ -934,10 +934,17 @@ function isKROpen() {
 // FETCH
 // ═══════════════════════════════════════════════
 async function fetchWithProxy(url) {
+  // 캐시 버스팅: 프록시가 이전 응답을 캐시하지 못하도록 타임스탬프 추가 (30초 단위 갱신)
+  const sep = url.includes('?') ? '&' : '?';
+  const bustUrl = url + sep + '_=' + Math.floor(Date.now() / 30000);
+
   for (let i = 0; i < PROXIES.length; i++) {
     const idx = (proxyIdx + i) % PROXIES.length;
     try {
-      const res = await fetch(PROXIES[idx] + encodeURIComponent(url), { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(PROXIES[idx] + encodeURIComponent(bustUrl), {
+        signal: AbortSignal.timeout(12000),
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       proxyIdx = idx;
       return await res.json();
@@ -946,9 +953,36 @@ async function fetchWithProxy(url) {
   throw new Error('데이터 로드 실패');
 }
 
+// ── 실시간 현재가 전용 fetch (v7/finance/quote) ─────────────────────────────
+// v8/finance/chart의 meta보다 현재가 업데이트가 빠름 — 특히 한국 주식에서 차이남
+async function fetchRealtimeQuote(ticker) {
+  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + ticker
+            + '&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,regularMarketVolume,regularMarketTime';
+  try {
+    const data = await fetchWithProxy(url);
+    const q = data?.quoteResponse?.result?.[0];
+    if (!q || q.regularMarketPrice == null) return null;
+    return {
+      price:     q.regularMarketPrice,
+      prevClose: q.regularMarketPreviousClose ?? null,
+      changePct: q.regularMarketChangePercent ?? null,
+      volume:    q.regularMarketVolume ?? null,
+      time:      q.regularMarketTime ? new Date(q.regularMarketTime * 1000) : null,
+    };
+  } catch(e) {
+    return null; // 실패해도 chart API fallback으로 진행
+  }
+}
+
 async function fetchStockData(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
-  const data = await fetchWithProxy(url);
+  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
+
+  // v7/quote (실시간) + v8/chart (히스토리) 병렬 호출 — 둘 중 더 최신 가격 사용
+  const [data, rtQuote] = await Promise.all([
+    fetchWithProxy(chartUrl),
+    fetchRealtimeQuote(ticker),   // 별도 엔드포인트로 현재가 직접 조회
+  ]);
+
   const r = data?.chart?.result?.[0];
   if (!r) throw new Error('데이터 없음');
 
@@ -959,17 +993,26 @@ async function fetchStockData(ticker) {
   const lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]   ?? null).filter(v=>v!=null);
   const volumes = (rawQ.volume || []).filter(v => v != null);
 
-  // ── 실시간 가격 (Yahoo meta 필드 사용) ──────────────────────────────────
-  // r.meta.regularMarketPrice = 장중 실시간 / 장 마감 후 = 최종가
-  // closes.at(-1) = 전날 종가 (일봉 히스토리의 마지막 봉) → 실시간 아님
-  const rtPrice   = r.meta.regularMarketPrice ?? null;
-  const rtPrevClose = r.meta.regularMarketPreviousClose
-                   ?? r.meta.previousClose
-                   ?? null;
-  const rtVolume  = r.meta.regularMarketVolume ?? null;
-  const isRealtime = rtPrice != null;
+  // ── 실시간 가격 결정 로직 ───────────────────────────────────────────────
+  // 우선순위: v7/quote (더 실시간) > v8/chart meta > 히스토리 마지막 봉
+  const chartMetaPrice    = r.meta.regularMarketPrice ?? null;
+  const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
+  const chartMetaVolume   = r.meta.regularMarketVolume ?? null;
 
-  // 실시간 가격으로 closes 마지막 값을 교체 → 모든 지표가 실시간 가격 반영
+  // v7/quote가 성공했고 가격이 있으면 최우선 사용
+  const rtPrice    = rtQuote?.price ?? chartMetaPrice ?? closes.at(-1);
+  const rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
+  const rtVolume   = rtQuote?.volume ?? chartMetaVolume ?? volumes.at(-1);
+  const rtTime     = rtQuote?.time ?? null;
+
+  // 가격 소스 추적 (카드에 표시용)
+  const priceSource = rtQuote?.price != null ? 'quote'    // v7/quote 성공
+                    : chartMetaPrice != null  ? 'meta'     // v8/chart meta
+                    : 'historical';                         // 히스토리 fallback
+
+  const isRealtime = priceSource !== 'historical';
+
+  // 실시간 가격으로 closes/volumes 마지막 값 교체 → 모든 지표가 최신 가격 반영
   if (isRealtime && closes.length > 0) {
     closes[closes.length - 1] = rtPrice;
   }
@@ -977,7 +1020,7 @@ async function fetchStockData(ticker) {
     volumes[volumes.length - 1] = rtVolume;
   }
 
-  const curr   = rtPrice ?? closes.at(-1);
+  const curr   = rtPrice;
   const prev   = rtPrevClose ?? closes.at(-2);
   const change = prev ? ((curr - prev) / prev) * 100 : 0;
 
@@ -1160,6 +1203,8 @@ async function fetchStockData(ticker) {
     pattern: dataLen >= 60,    // 차트 패턴 (60일 필요)
     candle:  dataLen >= 5,     // 캔들 패턴
     realtime: isRealtime,      // 실시간 가격 여부
+    priceSource,               // 'quote' | 'meta' | 'historical'
+    rtTime,                    // 마지막 체결 시각
     // 전체 신뢰도 등급
     grade: dataLen >= 200 ? 'A' : dataLen >= 100 ? 'B' : dataLen >= 60 ? 'C' : 'D',
     // 신뢰도 설명
@@ -2353,18 +2398,29 @@ function buildCard(d, market) {
     const gradeColor = { A:'var(--green)', B:'var(--amber)', C:'var(--red)', D:'var(--red)' }[cov.grade];
     const gradeIcon  = { A:'✓', B:'⚠', C:'⚠', D:'✗' }[cov.grade];
 
-    // 실시간 가격 표시
-    const rtBadge = cov.realtime
+    // 실시간 가격 표시 — 소스별 구분
+    const rtTimeStr = cov.rtTime
+      ? cov.rtTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' })
+      : null;
+    const rtBadge = cov.priceSource === 'quote'
       ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
            background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);
-           margin-left:5px">
+           margin-left:5px" title="v7/finance/quote — 가장 최신 가격">
            <span style="display:inline-block;width:5px;height:5px;border-radius:50%;
              background:var(--green);margin-right:3px;vertical-align:middle;
-             animation:dotpulse 1.4s ease infinite"></span>실시간
+             animation:dotpulse 1.4s ease infinite"></span>실시간${rtTimeStr ? ' ' + rtTimeStr : ''}
+         </span>`
+      : cov.priceSource === 'meta'
+      ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
+           background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);
+           margin-left:5px" title="v8/finance/chart meta — quote 실패, chart meta 사용">
+           ⏱ 준실시간
          </span>`
       : `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
-           background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);
-           margin-left:5px">⚠ 전일종가</span>`;
+           background:rgba(255,61,90,.1);color:var(--red);border:1px solid rgba(255,61,90,.3);
+           margin-left:5px" title="실시간 조회 실패 — 전일 종가 표시 중">
+           ✗ 전일종가
+         </span>`;
 
     // 데이터 등급 배지
     const badge = `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
@@ -2382,9 +2438,13 @@ function buildCard(d, market) {
       : '';
 
     // 실시간 가격 실패 경고
-    const rtWarn = !cov.realtime
+    const rtWarn = cov.priceSource === 'historical'
+      ? `<div style="margin-top:4px;font-size:9px;color:var(--red)">
+           ✗ 실시간 가격 수신 실패 — 전일 종가 표시 중 (신호 정확도 낮음)
+         </div>`
+      : cov.priceSource === 'meta'
       ? `<div style="margin-top:4px;font-size:9px;color:var(--amber)">
-           ⚠ 실시간 가격 수신 실패 — 전일 종가로 표시 중 (신호 정확도 낮음)
+           ⏱ quote API 실패 — chart meta 가격 사용 중 (수 분 지연 가능)
          </div>`
       : '';
 
