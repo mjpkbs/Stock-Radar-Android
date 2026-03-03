@@ -989,6 +989,15 @@ const RULES = {
   maxSectorPct:   0.25,     // R19: max 25% per sector
   maxPositionPct: 0.10,     // R19: max 10% per stock
   pollInterval:   5 * 60 * 1000,
+// ── performance ─────────────────────────────
+scanConcurrency: 6,        // 동시 요청 수 (높이면 빨라지지만 프록시/레이트리밋 위험)
+useRealtimeQuotes: true,   // 장중일 때만 v7/quote 사용 (장 마감 시 자동으로 안 씀)
+
+// ── ATR 기반 손절/익절 옵션 ─────────────────
+useATRStops: false,        // true면 고정 % 대신 ATR 기반 손절/익절 계산
+kStop: 2.0,                // stop = entry - kStop*ATR
+kTP1: 3.0,                 // tp1  = entry + kTP1*ATR
+kTP2: 5.0,                 // tp2  = entry + kTP2*ATR
 };
 
 // ═══════════════════════════════════════════════
@@ -1036,6 +1045,88 @@ const PROXIES = [
   'https://corsproxy.io/?',
   'https://api.allorigins.win/raw?url=',
 ];
+
+
+/* ═══════════════════════════════════════════════
+   CACHE & PERFORMANCE KNOBS
+   - chart(1y,1d) bars: heavy but mostly daily → cache ~24h
+   - realtime quote: only when market open → cache a few seconds
+   - in-memory dedupe: avoid duplicate calls within a single scan
+═══════════════════════════════════════════════ */
+const CACHECFG = {
+  chartTTLms: 24 * 60 * 60 * 1000,   // 24h
+  quoteTTLms: 15 * 1000,             // 15s (only during market open)
+  maxChartItems: 140,                // localStorage LRU cap (both markets combined)
+};
+
+const _memChart = new Map(); // ticker -> { t, v }
+const _memQuote = new Map(); // ticker -> { t, v }
+
+function _lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch(e) { return null; }
+}
+function _lsSet(key, obj) {
+  try { localStorage.setItem(key, JSON.stringify(obj)); } catch(e) { /* quota */ }
+}
+function _cacheGet(key, ttlMs) {
+  const item = _lsGet(key);
+  if (!item || !item.t) return null;
+  if (Date.now() - item.t > ttlMs) return null;
+  return item.v ?? null;
+}
+function _cacheSet(key, val, indexKey, maxItems) {
+  const now = Date.now();
+  _lsSet(key, { t: now, v: val });
+  // maintain LRU index (best effort)
+  try {
+    const idx = _lsGet(indexKey) || [];
+    const filtered = idx.filter(k => k !== key);
+    filtered.unshift(key);
+    const pruned = filtered.slice(0, maxItems);
+    _lsSet(indexKey, pruned);
+    // delete old keys beyond cap
+    filtered.slice(maxItems).forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
+  } catch(e) {}
+}
+
+function _getCachedChartBars(ticker) {
+  const mem = _memChart.get(ticker);
+  if (mem && (Date.now() - mem.t) <= CACHECFG.chartTTLms) return mem.v;
+  const key = 'sr2_chart_' + ticker;
+  const v = _cacheGet(key, CACHECFG.chartTTLms);
+  if (v) _memChart.set(ticker, { t: Date.now(), v });
+  return v;
+}
+function _setCachedChartBars(ticker, bars) {
+  _memChart.set(ticker, { t: Date.now(), v: bars });
+  const key = 'sr2_chart_' + ticker;
+  _cacheSet(key, bars, 'sr2_chart_idx', CACHECFG.maxChartItems);
+}
+
+function _getCachedQuote(ticker) {
+  const mem = _memQuote.get(ticker);
+  if (mem && (Date.now() - mem.t) <= CACHECFG.quoteTTLms) return mem.v;
+  return null;
+}
+function _setCachedQuote(ticker, q) {
+  _memQuote.set(ticker, { t: Date.now(), v: q });
+}
+
+// Simple promise pool for faster scanning (without hammering proxies)
+async function asyncPool(items, limit, worker) {
+  const ret = [];
+  const executing = [];
+  for (let i = 0; i < items.length; i++) {
+    const p = Promise.resolve().then(() => worker(items[i], i));
+    ret.push(p);
+    if (limit <= items.length) {
+      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+      executing.push(e);
+      if (executing.length >= limit) await Promise.race(executing);
+    }
+  }
+  return Promise.allSettled(ret);
+}
 
 // ═══════════════════════════════════════════════
 // INIT
@@ -1184,45 +1275,75 @@ async function fetchRealtimeQuote(ticker) {
   }
 }
 
+
 async function fetchStockData(ticker) {
-  // ── Yahoo Finance for both US and Korean stocks ──────────────────────────
+  // ── Heavy "chart" data is mostly daily → cache ~24h
+  // ── Realtime quote is only useful during market open → fetch conditionally
+  const isKR = /\.(KS|KQ)$/i.test(ticker);
+  const marketOpen = isKR ? isKROpen() : isUSOpen();
+  const wantQuote  = !!RULES.useRealtimeQuotes && marketOpen;
+
   const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`;
 
-  // v7/quote (실시간) + v8/chart (히스토리) 병렬 호출
-  const [data, rtQuote] = await Promise.all([
-    fetchWithProxy(chartUrl),
-    fetchRealtimeQuote(ticker),
-  ]);
+  // 1) Load cached bars (opens/highs/lows/closes/volumes + meta)
+  let bars = _getCachedChartBars(ticker);
 
-  const r = data?.chart?.result?.[0];
-  if (!r) throw new Error('데이터 없음');
+  // 2) Refresh chart if cache miss (or clearly broken)
+  if (!bars || !bars.closes || bars.closes.length < 60) {
+    const data = await fetchWithProxy(chartUrl);
+    const r = data?.chart?.result?.[0];
+    if (!r) throw new Error('데이터 없음');
 
-  const rawQ = r.indicators.quote[0];
-  const closes  = (rawQ.close  || []).map((v,i) => v ?? rawQ.close[i-1]  ?? null).filter(v=>v!=null);
-  const opens   = (rawQ.open   || []).map((v,i) => v ?? rawQ.open[i-1]   ?? null).filter(v=>v!=null);
-  const highs   = (rawQ.high   || []).map((v,i) => v ?? rawQ.high[i-1]   ?? null).filter(v=>v!=null);
-  const lows    = (rawQ.low    || []).map((v,i) => v ?? rawQ.low[i-1]    ?? null).filter(v=>v!=null);
-  const volumes = (rawQ.volume || []).filter(v => v != null);
+    const q = r.indicators.quote[0] || {};
+    const closes  = (q.close  || []).map((v,i)=>v ?? q.close[i-1] ?? null).filter(v=>v!=null);
+    const opens   = (q.open   || []).map((v,i)=>v ?? q.open[i-1]  ?? null).filter(v=>v!=null);
+    const highs   = (q.high   || []).map((v,i)=>v ?? q.high[i-1]  ?? null).filter(v=>v!=null);
+    const lows    = (q.low    || []).map((v,i)=>v ?? q.low[i-1]   ?? null).filter(v=>v!=null);
+    const volumes = (q.volume || []).filter(v => v != null);
 
-  // 가격 소스 결정: v7/quote > v8/chart meta > 히스토리 마지막 봉
-  const chartMetaPrice     = r.meta.regularMarketPrice ?? null;
-  const chartMetaPrevClose = r.meta.regularMarketPreviousClose ?? r.meta.previousClose ?? null;
-  const chartMetaVolume    = r.meta.regularMarketVolume ?? null;
+    bars = {
+      opens, highs, lows, closes, volumes,
+      meta: {
+        regularMarketPrice: r.meta?.regularMarketPrice ?? null,
+        regularMarketPreviousClose: r.meta?.regularMarketPreviousClose ?? r.meta?.previousClose ?? null,
+        regularMarketVolume: r.meta?.regularMarketVolume ?? null,
+      }
+    };
+    _setCachedChartBars(ticker, bars);
+  }
 
-  const rtPrice     = rtQuote?.price    ?? chartMetaPrice    ?? closes.at(-1);
+  // 3) Optional realtime quote (cached a few seconds in-memory)
+  let rtQuote = null;
+  if (wantQuote) {
+    rtQuote = _getCachedQuote(ticker);
+    if (!rtQuote) {
+      rtQuote = await fetchRealtimeQuote(ticker);
+      if (rtQuote) _setCachedQuote(ticker, rtQuote);
+    }
+  }
+
+  // Use cached bars arrays
+  const closes  = (bars.closes  || []).slice();
+  const opens   = (bars.opens   || []).slice();
+  const highs   = (bars.highs   || []).slice();
+  const lows    = (bars.lows    || []).slice();
+  const volumes = (bars.volumes || []).slice();
+
+  // 가격 소스 결정: (장중) v7/quote > v8/chart meta > 히스토리 마지막 봉
+  const chartMetaPrice     = bars.meta?.regularMarketPrice ?? null;
+  const chartMetaPrevClose = bars.meta?.regularMarketPreviousClose ?? null;
+  const chartMetaVolume    = bars.meta?.regularMarketVolume ?? null;
+
+  const rtPrice     = rtQuote?.price     ?? chartMetaPrice     ?? closes.at(-1);
   const rtPrevClose = rtQuote?.prevClose ?? chartMetaPrevClose ?? closes.at(-2);
-  const rtVolume    = rtQuote?.volume   ?? chartMetaVolume   ?? volumes.at(-1);
+  const rtVolume    = rtQuote?.volume    ?? chartMetaVolume    ?? volumes.at(-1);
   const rtTime      = rtQuote?.time ?? null;
   const priceSource = rtQuote?.price != null ? 'quote' : chartMetaPrice != null ? 'meta' : 'historical';
   const isRealtime  = priceSource !== 'historical';
 
-  // 실시간 가격으로 closes/volumes 마지막 값 교체 → 모든 지표가 최신 가격 반영
-  if (isRealtime && closes.length > 0) {
-    closes[closes.length - 1] = rtPrice;
-  }
-  if (rtVolume != null && volumes.length > 0) {
-    volumes[volumes.length - 1] = rtVolume;
-  }
+  // 실시간 가격으로 마지막 값 교체 → 지표는 "현재가 기준"으로 계산
+  if (isRealtime && closes.length > 0) closes[closes.length - 1] = rtPrice;
+  if (rtVolume != null && volumes.length > 0) volumes[volumes.length - 1] = rtVolume;
 
   const curr   = rtPrice;
   const prev   = rtPrevClose ?? closes.at(-2);
@@ -2094,43 +2215,127 @@ function buildDerivedFromHistory(candles, i) {
            goldenCross, nearGolden, deathCross, nearMA, priceRunPct, patterns };
 }
 
+
+// ═══════════════════════════════════════════════
+// EXECUTION COST + ATR STOPS (Backtest realism)
+// ═══════════════════════════════════════════════
+const COST = {
+  feeBps: 2.0,         // per side (commission) in bps
+  spreadBps: 2.0,      // half-spread approximation
+  slipBpsBase: 6.0,    // baseline slippage
+  slipBpsByATR: 25.0,  // extra slippage scaled by ATR% (e.g. atrPct=0.03 → +0.75bps if 25*0.03)
+  minSlipBps: 3.0,
+};
+
+function estimateTradingCost({ price, atrPct, dollarVolume, side }) {
+  // Very lightweight model: higher vol + lower liquidity → more slippage.
+  const liqAdj = (dollarVolume && dollarVolume > 0) ? Math.min(12, 2e7 / dollarVolume) : 6; // crude
+  const slip = Math.max(COST.minSlipBps, COST.slipBpsBase + (COST.slipBpsByATR * (atrPct || 0)) + liqAdj);
+  // buy pays spread + slip; sell also pays spread + slip; fee always.
+  return COST.feeBps + COST.spreadBps + slip;
+}
+
+function applyCostToFill(fillPrice, bps, side) {
+  const k = bps / 10000;
+  // buy: worse (higher); sell: worse (lower)
+  return side === 'buy' ? fillPrice * (1 + k) : fillPrice * (1 - k);
+}
+
+// ATR at a specific candle index (uses previous close)
+function atrAt(candles, idx, period = 14) {
+  if (!candles || candles.length < period + 2) return null;
+  const start = Math.max(1, idx - period + 1);
+  const end = Math.min(idx, candles.length - 1);
+  const trs = [];
+  for (let i = start; i <= end; i++) {
+    const h = candles[i].h, l = candles[i].l, pc = candles[i - 1].c;
+    if (h == null || l == null || pc == null) return null;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < period) return null;
+  return trs.reduce((a,b)=>a+b,0) / trs.length;
+}
+
+function buildStopsTargets({ entry, atr, kStop, kTP1, kTP2 }) {
+  return {
+    stop: entry - (kStop * atr),
+    tp1:  entry + (kTP1  * atr),
+    tp2:  entry + (kTP2  * atr),
+  };
+}
+
+
 function simulateTrade(candles, entryIdx, entryPrice) {
-  const stopPrice = entryPrice * (1 + RULES.stopLoss);    // -8%
-  const tp1Price  = entryPrice * (1 + RULES.profitTier1); // +20%
-  const tp2Price  = entryPrice * (1 + RULES.profitTier2); // +40%
+  // Entry fill (apply realistic cost)
+  const atrVal = RULES.useATRStops ? atrAt(candles, entryIdx, 14) : null;
+  const atrPct = (atrVal && entryPrice) ? (atrVal / entryPrice) : 0;
+  const dv     = (candles?.[entryIdx]?.v != null) ? (entryPrice * candles[entryIdx].v) : null;
+
+  const entryBps  = estimateTradingCost({ price: entryPrice, atrPct, dollarVolume: dv, side: 'buy' });
+  const entryFill = applyCostToFill(entryPrice, entryBps, 'buy');
+
+  // Stops/targets (either ATR-based or fixed-%)
+  let stopPrice, tp1Price, tp2Price;
+  if (RULES.useATRStops && atrVal) {
+    const st = buildStopsTargets({ entry: entryPrice, atr: atrVal, kStop: RULES.kStop, kTP1: RULES.kTP1, kTP2: RULES.kTP2 });
+    stopPrice = st.stop;
+    tp1Price  = st.tp1;
+    tp2Price  = st.tp2;
+  } else {
+    stopPrice = entryPrice * (1 + RULES.stopLoss);    // -8%
+    tp1Price  = entryPrice * (1 + RULES.profitTier1); // +20%
+    tp2Price  = entryPrice * (1 + RULES.profitTier2); // +40%
+  }
+
   let peak = entryPrice, sold1 = false, sold2 = false, remaining = 1.0, realized = 0;
 
   for (let i = entryIdx + 1; i < candles.length; i++) {
     const c = candles[i].c;
+    if (c == null) continue;
     peak = Math.max(peak, c);
+
+    const dvNow  = (candles[i].v != null) ? (c * candles[i].v) : dv;
+    const bpsNow = estimateTradingCost({ price: c, atrPct, dollarVolume: dvNow, side: 'sell' });
 
     // Hard stop
     if (c <= stopPrice) {
-      realized += remaining * (c / entryPrice - 1);
-      return { exitIdx: i, exitPrice: c, realized, reason: 'stop' };
+      const exitFill = applyCostToFill(c, bpsNow, 'sell');
+      realized += remaining * (exitFill / entryFill - 1);
+      return { exitIdx: i, exitPrice: exitFill, realized, reason: RULES.useATRStops ? 'atr_stop' : 'stop' };
     }
-    // Tier 2 profit (+40%) — sell 1/3
+
+    // Tier 2 profit — sell 1/3
     if (!sold2 && c >= tp2Price) {
+      const exitFill = applyCostToFill(c, bpsNow, 'sell');
       const sz = Math.min(1 / 3, remaining);
-      realized += sz * (c / entryPrice - 1);
+      realized += sz * (exitFill / entryFill - 1);
       remaining -= sz; sold2 = true;
     } else if (!sold1 && c >= tp1Price) {
-      // Tier 1 profit (+20%) — sell 1/3
+      // Tier 1 profit — sell 1/3
+      const exitFill = applyCostToFill(c, bpsNow, 'sell');
       const sz = Math.min(1 / 3, remaining);
-      realized += sz * (c / entryPrice - 1);
+      realized += sz * (exitFill / entryFill - 1);
       remaining -= sz; sold1 = true;
     }
+
     // Trailing stop (-10% from peak while profitable)
     const fromPeak = (c - peak) / peak;
     if (remaining > 0 && fromPeak <= -Math.abs(RULES.trailingStop) && c > entryPrice) {
-      realized += remaining * (c / entryPrice - 1);
-      return { exitIdx: i, exitPrice: c, realized, reason: 'trailing' };
+      const exitFill = applyCostToFill(c, bpsNow, 'sell');
+      realized += remaining * (exitFill / entryFill - 1);
+      return { exitIdx: i, exitPrice: exitFill, realized, reason: 'trailing' };
     }
   }
+
   const last = candles[candles.length - 1].c;
-  realized += remaining * (last / entryPrice - 1);
-  return { exitIdx: candles.length - 1, exitPrice: last, realized, reason: 'eod' };
+  const dvLast  = (candles?.at(-1)?.v != null && last != null) ? (last * candles.at(-1).v) : dv;
+  const bpsLast = estimateTradingCost({ price: last, atrPct, dollarVolume: dvLast, side: 'sell' });
+  const exitFill = applyCostToFill(last, bpsLast, 'sell');
+
+  realized += remaining * (exitFill / entryFill - 1);
+  return { exitIdx: candles.length - 1, exitPrice: exitFill, realized, reason: 'eod' };
 }
+
 
 // ── Helper: compute metrics from a trade array ───────────────────────────
 function calcMetrics(trades) {
@@ -3048,43 +3253,48 @@ async function runScreener(silent = false) {
   updateSourceSummary(m);
 
   let done = 0, buyCnt = 0;
-  for (const s of wl) {
-    try {
-      const raw  = await fetchStockData(s.ticker);
-      const sig  = getSignal(raw);
-      // Apply profitability gate: if BT exists + fails → hold
-      const gate = profitabilityGate(s.ticker, m);
-      if (gate.has && !gate.pass && (sig.signal === 'buy' || sig.signal === 'strong-buy')) {
-        sig.signal  = 'hold';
-        sig.btGated = true;
-        sig.reasons = [{ text: `📊 BT게이트: ${gate.note}`, t: 'w' }, ...(sig.reasons || [])];
-      }
-      sig.btGate = gate;
-      screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
-      if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
-      if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
-        if (notifOn && sig.signal === 'strong-buy')
-          addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
-        // Log signal with edge data for outcome tracking
-        addSignalLog(m, {
-          ticker: s.ticker, name: s.name, signal: sig.signal,
-          score: sig.score, price: raw.curr,
-          prob: sig.edge?.prob, expectedReturn: sig.edge?.expectedReturn,
-          rr: sig.edge?.rr, conf: sig.edge?.conf,
-          probSource: sig.edge?.probSource,
-          regime: sig.edge?.regime,
-          reasons: (sig.reasons||[]).slice(0,3).map(r=>r.text),
-          time: Date.now(),
-        });
-      }
-    } catch(e) {
-      screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
+
+const concurrency = Math.max(1, Math.min(10, RULES.scanConcurrency || 6));
+document.getElementById('scan-status').textContent = `스캔 중... (동시 ${concurrency})`;
+
+const results = await asyncPool(wl, concurrency, async (s, idx) => {
+  try {
+    const raw  = await fetchStockData(s.ticker);
+    const sig  = getSignal(raw);
+    // Apply profitability gate: if BT exists + fails → hold
+    const gate = profitabilityGate(s.ticker, m);
+    if (gate.has && !gate.pass && (sig.signal === 'buy' || sig.signal === 'strong-buy')) {
+      sig.signal  = 'hold';
+      sig.btGated = true;
+      sig.reasons = [{ text: `📊 BT게이트: ${gate.note}`, t: 'w' }, ...(sig.reasons || [])];
     }
+    sig.btGate = gate;
+    screenerData[m][s.ticker] = { ...raw, ...sig, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src };
+    if (sig.signal === 'strong-buy' || sig.signal === 'buy') buyCnt++;
+
+    if (sig.signal === 'strong-buy' || sig.signal === 'buy') {
+      if (notifOn && sig.signal === 'strong-buy')
+        addToast(s.ticker, '🔥 강력 매수 신호!', true, m==='kr' ? s.name : null);
+
+      addSignalLog(m, {
+        ticker: s.ticker, name: s.name, signal: sig.signal,
+        score: sig.score, price: raw.curr,
+        prob: sig.edge?.prob, expectedReturn: sig.edge?.expectedReturn,
+        rr: sig.edge?.rr, conf: sig.edge?.conf,
+        probSource: sig.edge?.probSource,
+        regime: sig.edge?.regime,
+        reasons: (sig.reasons||[]).slice(0,3).map(r=>r.text),
+        time: Date.now(),
+      });
+    }
+  } catch(e) {
+    screenerData[m][s.ticker] = { ticker:s.ticker, name:s.name||s.ticker, sector:s.sector, note:s.note, _src:s._src, error:e.message };
+  } finally {
     done++;
     if (!silent) pfx.style.width = `${(done/wl.length)*100}%`;
-    updateSingleCard(m, wl[done-1].ticker);
-    await sleep(280);
+    updateSingleCard(m, s.ticker);
   }
+});
 
   finalRender(m);
   if (!silent) {
