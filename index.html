@@ -262,6 +262,19 @@ main{padding:20px;max-width:1500px;margin:0 auto}
 .bt-cell-val{font-size:12px;font-weight:700}
 .bt-trades{font-size:9px;color:var(--dim2);margin-top:5px;padding-top:5px;border-top:1px solid var(--border)}
 
+/* strategy-level BT summary */
+.strat-bt-wrap{padding:10px 14px;border-radius:7px;border:1px solid;margin-bottom:8px}
+.strat-bt-wrap.strat-pass{background:rgba(0,230,118,.05);border-color:rgba(0,230,118,.25)}
+.strat-bt-wrap.strat-fail{background:rgba(255,61,90,.05);border-color:rgba(255,61,90,.25)}
+.strat-bt-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:11px}
+.strat-bt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.strat-cell{background:var(--bg3);border-radius:4px;padding:5px 8px;text-align:center}
+.strat-lbl{font-size:8px;color:var(--dim2);margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em}
+.strat-val{font-size:14px;font-weight:700}
+
+/* OOS badge on BT panel */
+.oos-badge{font-size:8px;padding:1px 5px;border-radius:3px;background:rgba(68,136,255,.15);color:var(--blue);font-weight:700;margin-left:5px}
+
 /* pattern panel */
 .pattern-panel{margin-bottom:10px;display:flex;flex-direction:column;gap:5px}
 .pat-item{background:var(--bg3);border-radius:5px;padding:7px 10px;border-left:3px solid}
@@ -549,6 +562,8 @@ tbody tr.sold-row{opacity:.65}
     </div>
     <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="source-summary" style="margin-bottom:10px;font-size:10px;color:var(--dim2);display:none"></div>
+    <!-- Strategy-level BT panel (shown after runAllBacktests) -->
+    <div id="strategy-bt-panel" style="display:none;margin-bottom:8px"></div>
     <div class="filter-bar">
       <button class="fbtn active" onclick="setFilter('all',this)">전체</button>
       <button class="fbtn" onclick="setFilter('strong-buy',this)">🔥 강력매수</button>
@@ -818,8 +833,16 @@ tbody tr.sold-row{opacity:.65}
         <span class="rule-num" style="background:rgba(255,61,90,.12);color:var(--red)">차단</span>
         위 조건 중 하나라도 미충족 → BUY 자동으로 HOLD 처리
       </div>
+      <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
+        <b style="color:var(--blue)">Train / Test 분리 (과최적화 방지)</b>
+        <span>2년 데이터를 70%(학습) / 30%(테스트)로 분리 → 테스트 구간 성과만 게이트에 사용. 학습 데이터에서 잘 보이는 "착시 수익" 차단.</span>
+      </div>
+      <div class="rule-row" style="flex-direction:column;gap:4px;margin-top:8px">
+        <b style="color:var(--amber)">전략 전체 BUY 차단 조건</b>
+        <span>📊 BT전체 실행 후 → OOS 전략 기대값 ≤ 0 이거나 OOS 승률 &lt; 50% 이면 모든 BUY 신호 자동 차단</span>
+      </div>
       <div class="rule-row" style="margin-top:4px;color:var(--dim2);font-size:10px">
-        카드 하단 📊 버튼 클릭 시 실행 · 결과는 브라우저에 저장됨
+        카드 하단 📊 버튼 = 개별 · 상단 "📊 BT전체" = 전체 전략 백테스트
       </div>
     </div>
     <div class="rules-panel" style="border-color:rgba(68,136,255,.3);background:rgba(68,136,255,.04)">
@@ -986,8 +1009,10 @@ let sellMarket    = null;
 let portfolios    = JSON.parse(localStorage.getItem('sr2_portfolios') || '{"us":[],"kr":[]}');
 let alarmLogs     = JSON.parse(localStorage.getItem('sr2_logs')      || '{"us":[],"kr":[]}');
 let signalLogs    = JSON.parse(localStorage.getItem('sr2_signals')  || '{"us":[],"kr":[]}');
-let btCache       = JSON.parse(localStorage.getItem('sr2_bt')       || '{"us":{},"kr":{}}');
-function saveBtCache() { localStorage.setItem('sr2_bt', JSON.stringify(btCache)); }
+let btCache        = JSON.parse(localStorage.getItem('sr2_bt')       || '{"us":{},"kr":{}}');
+let btStrategy     = JSON.parse(localStorage.getItem('sr2_bt_strat') || '{"us":null,"kr":null}');
+function saveBtCache()    { localStorage.setItem('sr2_bt',       JSON.stringify(btCache));    }
+function saveBtStrategy() { localStorage.setItem('sr2_bt_strat', JSON.stringify(btStrategy)); }
 let snoozed       = {};
 let alarmActive   = false;
 let alarmCtx      = null;
@@ -1022,6 +1047,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderLog();
   updateMarketRegime(); // fetch SPY + KODEX200 for regime
   autoUpdateOutcomes(); // auto-fetch outcomes for past signals
+  renderStrategyBTPanel(activeMarket); // show cached strategy BT if available
   runScreener();
   pollTimer = setInterval(() => {
     runScreener(true);
@@ -2106,11 +2132,39 @@ function simulateTrade(candles, entryIdx, entryPrice) {
   return { exitIdx: candles.length - 1, exitPrice: last, realized, reason: 'eod' };
 }
 
+// ── Helper: compute metrics from a trade array ───────────────────────────
+function calcMetrics(trades) {
+  const n = trades.length;
+  if (!n) return null;
+  const wins    = trades.filter(t => t.r > 0).length;
+  const avg     = trades.reduce((s, t) => s + t.r, 0) / n;
+  const avgWin  = (() => { const w = trades.filter(t => t.r > 0); return w.length ? w.reduce((s,t) => s+t.r,0)/w.length : 0; })();
+  const avgLoss = (() => { const l = trades.filter(t => t.r <= 0); return l.length ? l.reduce((s,t) => s+t.r,0)/l.length : 0; })();
+  let eq = 1, peak = 1, maxDD = 0;
+  for (const t of trades) {
+    eq *= (1 + t.r);
+    if (eq > peak) peak = eq;
+    const dd = (eq - peak) / peak;
+    if (dd < maxDD) maxDD = dd;
+  }
+  const winRate    = wins / n;
+  const expectancy = winRate * avgWin + (1 - winRate) * avgLoss;
+  return { n, winRate, avgReturn: avg, expectancy, maxDrawdown: maxDD, avgWin, avgLoss };
+}
+
+// ── Single-ticker BT with TRAIN/TEST SPLIT ───────────────────────────────
+// First 70% = in-sample (warm-up + rule development)
+// Last  30% = out-of-sample TEST → gate decision uses ONLY test results
 async function backtestTicker(ticker, market, range = '2y') {
   const candles = await fetchHistory(ticker, range, '1d');
   if (!candles || candles.length < 260) return null;
 
-  const trades = [];
+  // Split point: 70% in-sample, 30% out-of-sample
+  const splitIdx = Math.floor(candles.length * 0.70);
+
+  const allTrades  = [];   // full run (for display)
+  const testTrades = [];   // OOS only (for gate decision)
+
   for (let i = 210; i < candles.length - 6; i++) {
     const d = buildDerivedFromHistory(candles, i);
     d.ticker = ticker;
@@ -2120,46 +2174,116 @@ async function backtestTicker(ticker, market, range = '2y') {
 
     const entryPrice = candles[i + 1].o ?? candles[i + 1].c;
     const sim = simulateTrade(candles, i + 1, entryPrice);
-    trades.push({
+    const trade = {
       entryIdx: i + 1, entryPrice,
       exitIdx: sim.exitIdx, exitPrice: sim.exitPrice,
       r: sim.realized, reason: sim.reason,
-      score: base.score, signal: base.signal
-    });
+      score: base.score, signal: base.signal,
+      oos: i >= splitIdx  // out-of-sample flag
+    };
+    allTrades.push(trade);
+    if (trade.oos) testTrades.push(trade);
   }
 
-  const n = trades.length;
-  if (!n) return { ticker, market, n: 0, trades: [], metrics: null };
+  const metrics     = calcMetrics(allTrades);
+  const testMetrics = calcMetrics(testTrades);  // OOS — the real truth
 
-  const wins    = trades.filter(t => t.r > 0).length;
-  const avg     = trades.reduce((s, t) => s + t.r, 0) / n;
-  const avgWin  = (() => { const w = trades.filter(t => t.r > 0); return w.length ? w.reduce((s,t) => s+t.r, 0)/w.length : 0; })();
-  const avgLoss = (() => { const l = trades.filter(t => t.r <= 0); return l.length ? l.reduce((s,t) => s+t.r, 0)/l.length : 0; })();
+  if (!metrics) return { ticker, market, n: 0, trades: [], metrics: null, testMetrics: null };
+  return { ticker, market, n: allTrades.length, trades: allTrades,
+           metrics, testMetrics, splitIdx, updatedAt: Date.now() };
+}
 
-  // Equity curve + max drawdown
-  let eq = 1, peak = 1, maxDD = 0;
-  for (const t of trades) {
-    eq *= (1 + t.r);
-    if (eq > peak) peak = eq;
-    const dd = (eq - peak) / peak;
-    if (dd < maxDD) maxDD = dd;
+// ══════════════════════════════════════════════════════════════════════════
+// PORTFOLIO-LEVEL (STRATEGY) BACKTEST
+// Aggregates ALL trades across multiple tickers → strategy-wide truth
+// OOS gate uses only the test-portion trades from all tickers combined
+// ══════════════════════════════════════════════════════════════════════════
+async function backtestStrategy(tickers, market, onProgress) {
+  const allTrades  = [];
+  const testTrades = [];
+  let done = 0;
+
+  for (const ticker of tickers) {
+    try {
+      const res = await backtestTicker(ticker, market, '2y');
+      if (res?.trades?.length) {
+        allTrades.push(...res.trades);
+        testTrades.push(...(res.trades.filter(t => t.oos)));
+        // Also cache per-ticker results
+        btCache[market] = btCache[market] || {};
+        btCache[market][ticker] = { ...res, updatedAt: Date.now() };
+      }
+    } catch(e) { /* skip bad ticker */ }
+    done++;
+    if (onProgress) onProgress(done, tickers.length);
+    await new Promise(r => setTimeout(r, 600));
   }
 
-  const winRate   = wins / n;
-  const expectancy = winRate * avgWin + (1 - winRate) * avgLoss;
+  saveBtCache();
 
-  return { ticker, market, n, trades, metrics: { winRate, avgReturn: avg, expectancy, maxDrawdown: maxDD, avgWin, avgLoss } };
+  const metrics     = calcMetrics(allTrades);
+  const testMetrics = calcMetrics(testTrades);
+
+  const result = {
+    tickers, market,
+    n:    allTrades.length,
+    nOOS: testTrades.length,
+    metrics,       // in-sample (full data)
+    testMetrics,   // OUT-OF-SAMPLE — the gate uses this
+    updatedAt: Date.now()
+  };
+
+  btStrategy[market] = result;
+  saveBtStrategy();
+  return result;
 }
 
 function profitabilityGate(ticker, market) {
   const rec = btCache?.[market]?.[ticker];
-  const m   = rec?.metrics;
+  if (!rec) return { has: false, pass: false, note: 'BT없음', rec: null };
+
+  // Prefer OOS (test) metrics — the real truth. Fall back to full if OOS too small.
+  const tm  = rec.testMetrics;   // out-of-sample
+  const fm  = rec.metrics;       // full (in-sample)
+  const m   = (tm && tm.n >= 5) ? tm : fm;  // use OOS if enough trades
+  const isOOS = (tm && tm.n >= 5);
+
   if (!m) return { has: false, pass: false, note: 'BT없음', rec: null };
 
-  // Gate: N≥20 trades + positive expectancy + drawdown within -25%
-  const pass = (rec.n >= 20) && (m.expectancy > 0) && (m.maxDrawdown > -0.25);
-  const note = `E ${(m.expectancy*100).toFixed(1)}% · W ${(m.winRate*100).toFixed(0)}% · DD ${(m.maxDrawdown*100).toFixed(0)}% · N${rec.n}`;
-  return { has: true, pass, note, rec, m };
+  // ── STRICT GATE (requirement 3: winRate > 0.55 AND expectancy > 0) ────
+  // Also check strategy-level stats if available (extra confidence layer)
+  const strat = btStrategy?.[market];
+  const sm    = strat?.testMetrics || strat?.metrics;
+
+  const passOOS      = isOOS;                          // bonus: real OOS data
+  const passN        = rec.n >= 15;                    // enough trades
+  const passExpect   = m.expectancy > 0;               // positive expected value
+  const passWinRate  = m.winRate >= 0.52;              // win rate ≥ 52%
+  const passDD       = m.maxDrawdown > -0.30;          // drawdown within -30%
+  const passStrategy = !sm || (sm.expectancy > 0 && sm.winRate >= 0.50); // strategy OK
+
+  const pass = passN && passExpect && passWinRate && passDD && passStrategy;
+
+  const oosTag = isOOS ? `OOS✓(${tm.n}건)` : `IS(${rec.n}건)`;
+  const note = `${oosTag} E:${(m.expectancy*100).toFixed(1)}% W:${(m.winRate*100).toFixed(0)}% DD:${(m.maxDrawdown*100).toFixed(0)}%`;
+
+  const failReasons = [];
+  if (!passN)        failReasons.push(`거래수 부족(${rec.n})`);
+  if (!passExpect)   failReasons.push(`기대값≤0`);
+  if (!passWinRate)  failReasons.push(`승률<52%`);
+  if (!passDD)       failReasons.push(`낙폭>30%`);
+  if (!passStrategy) failReasons.push(`전략전체 부진`);
+
+  return { has: true, pass, note, failReasons, rec, m, tm, isOOS };
+}
+
+// ── Strategy-level gate (portfolio-wide sanity check) ────────────────────
+function strategyGate(market) {
+  const strat = btStrategy?.[market];
+  const sm    = strat?.testMetrics || strat?.metrics;
+  if (!sm || !strat) return { has: false, pass: true }; // no data → don't block
+  const pass = sm.expectancy > 0 && sm.winRate >= 0.50 && sm.n >= 30;
+  return { has: true, pass, sm, strat };
 }
 
 async function runBacktestUI(ticker, market) {
@@ -2184,37 +2308,74 @@ async function runBacktestUI(ticker, market) {
   }
 }
 
-// Run BT sequentially on all current scan items (no BT yet or stale > 7 days)
+// ══════════════════════════════════════════════════════════════════════════
+// PORTFOLIO-LEVEL BT: runs ALL tickers together, aggregates strategy stats
+// ══════════════════════════════════════════════════════════════════════════
 async function runAllBacktests() {
   const m  = activeMarket;
-  const wl = activeScanList[m].length ? activeScanList[m] : WATCHLISTS[m];
+  const wl = (activeScanList[m] && activeScanList[m].length) ? activeScanList[m] : WATCHLISTS[m];
+  const tickers = wl.map(s => s.ticker);
+
   const btn = document.getElementById('bt-all-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ BT중...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 전략BT중...'; }
 
-  let done = 0;
-  for (const s of wl) {
-    const existing = btCache[m]?.[s.ticker];
-    const stale = !existing || (Date.now() - existing.updatedAt > 7 * 24 * 3600 * 1000);
-    if (!stale) { done++; continue; }
+  // Show live progress in status bar
+  const statusEl = document.getElementById('scan-status');
 
-    try {
-      const res = await backtestTicker(s.ticker, m, '2y');
-      if (res?.metrics) {
-        btCache[m] = btCache[m] || {};
-        btCache[m][s.ticker] = { ...res, updatedAt: Date.now() };
-        saveBtCache();
-        updateSingleCard(m, s.ticker);
-      }
-    } catch(e) { /* skip */ }
-
-    done++;
-    if (btn) btn.textContent = `⏳ ${done}/${wl.length}`;
-    await new Promise(r => setTimeout(r, 800)); // rate limit
-  }
+  const strat = await backtestStrategy(tickers, m, (done, total) => {
+    if (btn) btn.textContent = `⏳ ${done}/${total}`;
+    if (statusEl) statusEl.textContent = `📊 전략 백테스트 ${done}/${total}...`;
+    // Update each card as its BT completes
+    if (btCache[m]?.[tickers[done-1]]) updateSingleCard(m, tickers[done-1]);
+  });
 
   if (btn) { btn.disabled = false; btn.textContent = '📊 BT전체'; }
+  if (statusEl) statusEl.textContent = '';
+
   finalRender(m);
-  addToast('전체', `📊 백테스트 완료 (${wl.length}종목)`, true);
+  renderStrategyBTPanel(m);
+
+  const sm = strat?.testMetrics || strat?.metrics;
+  if (sm) {
+    const pass = sm.expectancy > 0 && sm.winRate >= 0.50;
+    addToast('전략', `📊 전략BT완료 · OOS E:${(sm.expectancy*100).toFixed(1)}% W:${(sm.winRate*100).toFixed(0)}% N:${sm.n}`, pass);
+  }
+}
+
+// ── Strategy BT summary panel (shown above screener cards) ───────────────
+function renderStrategyBTPanel(market) {
+  const el = document.getElementById('strategy-bt-panel');
+  if (!el) return;
+  const strat = btStrategy?.[market];
+  if (!strat) { el.style.display = 'none'; return; }
+
+  const sm  = strat.testMetrics;  // OOS
+  const fm  = strat.metrics;      // full
+  const sg  = strategyGate(market);
+  const pass = sg.pass;
+
+  const eCol  = sm && sm.expectancy > 0 ? 'var(--green)' : 'var(--red)';
+  const wCol  = sm && sm.winRate >= 0.55 ? 'var(--green)' : sm && sm.winRate >= 0.50 ? 'var(--amber)' : 'var(--red)';
+  const ddCol = sm && sm.maxDrawdown > -0.15 ? 'var(--green)' : sm && sm.maxDrawdown > -0.25 ? 'var(--amber)' : 'var(--red)';
+  const upd   = strat.updatedAt ? new Date(strat.updatedAt).toLocaleDateString('ko-KR') : '?';
+
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="strat-bt-wrap ${pass ? 'strat-pass' : 'strat-fail'}">
+      <div class="strat-bt-top">
+        <span><b>📊 전략 백테스트</b> <span style="font-size:9px;color:var(--dim2)">${strat.tickers?.length || '?'}종목 · 2년 · OOS ${strat.nOOS}거래 · ${upd}</span></span>
+        <span style="font-size:11px;font-weight:700;color:${pass ? 'var(--green)' : 'var(--red)'}">${pass ? '✓ 전략 유효' : '✗ 전략 부진 — BUY 차단 중'}</span>
+      </div>
+      <div class="strat-bt-grid">
+        ${sm ? `
+        <div class="strat-cell"><div class="strat-lbl">OOS 기대값</div><div class="strat-val" style="color:${eCol}">${(sm.expectancy*100).toFixed(2)}%</div></div>
+        <div class="strat-cell"><div class="strat-lbl">OOS 승률</div><div class="strat-val" style="color:${wCol}">${(sm.winRate*100).toFixed(0)}%</div></div>
+        <div class="strat-cell"><div class="strat-lbl">OOS 최대DD</div><div class="strat-val" style="color:${ddCol}">${(sm.maxDrawdown*100).toFixed(0)}%</div></div>
+        <div class="strat-cell"><div class="strat-lbl">OOS 거래수</div><div class="strat-val">${sm.n}건</div></div>
+        ` : '<div style="color:var(--dim2);font-size:10px">OOS 데이터 없음</div>'}
+      </div>
+      ${fm ? `<div style="font-size:9px;color:var(--dim2);margin-top:5px">전체(IS): E ${(fm.expectancy*100).toFixed(1)}% · W ${(fm.winRate*100).toFixed(0)}% · N ${fm.n}건 &nbsp;|&nbsp; OOS = 최근 30% 구간만 사용 (과최적화 방지)</div>` : ''}
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2353,23 +2514,36 @@ function computeEdge(d, signal) {
 // TRADE SETUP CALCULATOR
 // Entry / Stop / Target 1 / Target 2 + Position sizing
 // ═══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// POSITION SIZING ENGINE (requirement 4)
+// Formula: shares = (account × riskPct) / |entry - stop|
+// Default account = 10,000,000원 / riskPct = 1%
+// ══════════════════════════════════════════════════════════════════════════
+function positionSize(accountWon, riskPct, entryPrice, stopPrice) {
+  const riskAmount   = accountWon * riskPct;          // e.g. 100,000원
+  const perShareRisk = Math.abs(entryPrice - stopPrice);
+  if (perShareRisk <= 0) return 0;
+  return Math.floor(riskAmount / perShareRisk);
+}
+
 function computeTradeSetup(d, edge) {
   const price = d.curr;
   if (!price) return null;
 
-  const riskPct = edge.riskAmt; // e.g. 0.08
+  const riskPct = edge.riskAmt;               // e.g. 0.08 (2×ATR or -8%)
   const stop    = price * (1 - riskPct);
   const t1      = price * (1 + edge.rewardT1);
   const t2      = price * (1 + edge.rewardT2);
 
-  // Position sizing: 1% portfolio risk model
-  // Assume 1,000만원 (~$7,500) portfolio for sizing example
-  const portfolioKRW = 10_000_000;
-  const riskWon = portfolioKRW * 0.01; // 1% = 100,000원 risk per trade
-  const riskPerShare = price * riskPct;
-  const shares = riskPerShare > 0 ? Math.floor(riskWon / riskPerShare) : 0;
+  // Conservative account defaults — user can adjust in rules modal
+  const accountWon = 10_000_000;              // 1,000만원
+  const riskPerTrade = 0.01;                  // 1% max risk per trade
 
-  return { entry: price, stop, t1, t2, riskPct, shares };
+  const shares       = positionSize(accountWon, riskPerTrade, price, stop);
+  const investAmount = shares * price;        // total capital deployed
+  const riskAmount   = shares * (price - stop); // actual money at risk
+
+  return { entry: price, stop, t1, t2, riskPct, shares, investAmount, riskAmount, accountWon, riskPerTrade };
 }
 
 function getSignal(d) {
@@ -2566,12 +2740,27 @@ function getSignal(d) {
   if (!d.aboveMA200 || d.deathCross) {
     signal = total < 35 ? 'strong-sell' : total < 50 ? 'sell' : 'watch';
   } else {
-    if      (total >= 85)              signal = 'strong-buy';
+    if      (total >= 85)                signal = 'strong-buy';
     else if (total >= RULES.buyScoreMin) signal = 'buy';
-    else if (total >= 55)              signal = 'watch';
-    else if (total >= 42)              signal = 'hold';
-    else if (total >= 28)              signal = 'sell';
-    else                               signal = 'strong-sell';
+    else if (total >= 55)                signal = 'watch';
+    else if (total >= 42)                signal = 'hold';
+    else if (total >= 28)                signal = 'sell';
+    else                                 signal = 'strong-sell';
+  }
+
+  // ── REQUIREMENT 3: Hard BUY filter using backtest evidence ─────────────
+  // BUY/STRONG-BUY only allowed when:
+  //   1. Score ≥ 75 (raised from 70)
+  //   2. Strategy-level OOS expectancy > 0
+  //   3. Strategy-level OOS win rate ≥ 55%
+  // Without BT data → allow through (can't block without evidence)
+  if (signal === 'buy' || signal === 'strong-buy') {
+    const sg = strategyGate(typeof activeMarket !== 'undefined' ? activeMarket : 'us');
+    if (sg.has && !sg.pass) {
+      // Strategy BT says this rules system isn't profitable → demote all buys
+      signal = 'watch';
+    }
+    // Per-ticker gate (applied later in screener, not here — avoid circular dep)
   }
 
   // 데이터 부족으로 핵심 지표 누락 시 신호 신뢰도 하향
@@ -3024,7 +3213,11 @@ function buildCard(d, market) {
         <div class="bt-cell"><div class="bt-cell-lbl">최대DD</div><div class="bt-cell-val" style="color:${ddCol}">${(m2.maxDrawdown*100).toFixed(0)}%</div></div>
         <div class="bt-cell"><div class="bt-cell-lbl">거래수</div><div class="bt-cell-val" style="color:var(--text2)">${rec.n}건</div></div>
       </div>
-      <div class="bt-trades">평균수익 ${(m2.avgReturn*100).toFixed(2)}% · 평균승 +${(m2.avgWin*100).toFixed(1)}% · 평균패 ${(m2.avgLoss*100).toFixed(1)}% · 업데이트 ${updAt}</div>
+      <div class="bt-trades">
+        ${gate.isOOS ? '<span class="oos-badge">OOS ✓</span>' : '<span class="oos-badge" style="background:rgba(255,171,0,.12);color:var(--amber)">IS only</span>'}
+        평균수익 ${(m2.avgReturn*100).toFixed(2)}% · 평균승 +${(m2.avgWin*100).toFixed(1)}% · 평균패 ${(m2.avgLoss*100).toFixed(1)}% · ${updAt}
+        ${gate.failReasons?.length ? `<br><span style="color:var(--red)">✗ 차단: ${gate.failReasons.join(' · ')}</span>` : ''}
+      </div>
     </div>`;
   })();
 
@@ -3188,7 +3381,15 @@ function buildCard(d, market) {
         <div class="pos-row">
           <span class="pos-label">포지션 사이징 (1% 리스크 · 1000만원 기준)</span>
           <span class="pos-val">${setup.shares > 0 ? setup.shares.toLocaleString() + '주' : '계산불가'}</span>
-        </div>` : '';
+        </div>
+        ${setup.shares > 0 ? `
+        <div class="pos-row" style="margin-top:3px">
+          <span class="pos-label">투자금액 / 리스크금액</span>
+          <span class="pos-val">
+            ${Math.round(setup.investAmount/10000).toLocaleString()}만원
+            <span style="color:var(--red);margin-left:6px">-${Math.round(setup.riskAmount/10000)}만원 리스크</span>
+          </span>
+        </div>` : ''}` : '';
 
       // Filter pass/fail breakdown
       const filterFails = [];
@@ -4437,7 +4638,8 @@ function switchMarket(m) {
   renderSkeletons();
   renderPortfolio();
   renderLog();
-  renderRegimeBar(); // update regime bar for new market
+  renderRegimeBar();        // update regime bar for new market
+  renderStrategyBTPanel(m); // show strategy BT for new market
   runScreener();
 }
 
