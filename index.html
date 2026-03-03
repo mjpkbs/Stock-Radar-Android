@@ -1008,8 +1008,17 @@ const RULES = {
   slipBpsByATR:   25.0,      // extra slippage scaled by ATR%
   minSlipBps:     3.0,       // minimum slippage
   // ── ENTRY MODEL (backtest) ────────────────────────────────────────────
-  entryMode:      'next_open',  // 'next_open' | 'close' | 'breakout_stop' | 'retest_limit'
-};
+  entryMode:      'next_open',  // 'next_open' | 'close' | 'breakout_stop' | 'retest_limit
+  // ── Backtest / OOS / Walk-forward gates ─────────────────────────
+  btMinTrades: 20,        // minimum trades for full BT validity
+  oosMinTrades: 20,       // minimum OOS trades to prefer OOS metrics
+  btWinRateMin: 0.52,     // BT gate: minimum win rate
+  btExpectMin: 0.0,        // BT gate: expectancy must be > this
+  btMaxDDMin: -0.30,        // BT gate: max drawdown must be > this (e.g., -0.30)
+  wfMinWindows: 5,        // walk-forward: minimum windows for confidence
+  wfPassRatioMin: 0.70,  // walk-forward: % windows that must be profitable
+  wfConsistencyMin: 0.30, // walk-forward: avg/std (higher = more consistent)
+};};
 
 /* ═══════════════════════════════════════════════
    CACHE & PERFORMANCE ENGINE (Merged)
@@ -1021,7 +1030,9 @@ const RULES = {
 const CACHECFG = {
   chartTTLms: 24 * 60 * 60 * 1000,   // 24h
   quoteTTLms: 15 * 1000,             // 15s (only during market open)
-  maxChartItems: 140,                // localStorage LRU cap
+  btTTLms:    7 * 24 * 60 * 60 * 1000,  // 7d per-ticker BT cache
+  btStratTTLms: 24 * 60 * 60 * 1000,    // 24h strategy-level BT cache
+  maxChartItems: 160,                 // localStorage LRU cap
 };
 
 const _memChart = new Map(); // ticker -> { t, v }
@@ -1194,6 +1205,25 @@ let signalLogs    = JSON.parse(localStorage.getItem('sr2_signals')  || '{"us":[]
 let btCache        = JSON.parse(localStorage.getItem('sr2_bt')       || '{"us":{},"kr":{}}');
 let btStrategy     = JSON.parse(localStorage.getItem('sr2_bt_strat') || '{"us":null,"kr":null}');
 function saveBtCache()    { localStorage.setItem('sr2_bt',       JSON.stringify(btCache));    }
+
+// ── BT CACHE TTL HELPERS ───────────────────────────────────────────────
+function _isFresh(updatedAt, ttlMs) {
+  if (!updatedAt) return false;
+  return (Date.now() - updatedAt) <= ttlMs;
+}
+function getBtRec(market, ticker) {
+  const rec = btCache?.[market]?.[ticker];
+  if (!rec) return null;
+  if (!_isFresh(rec.updatedAt, CACHECFG.btTTLms)) return null;
+  return rec;
+}
+function getStratRec(market) {
+  const rec = btStrategy?.[market];
+  if (!rec) return null;
+  if (!_isFresh(rec.updatedAt, CACHECFG.btStratTTLms)) return null;
+  return rec;
+}
+
 function saveBtStrategy() { localStorage.setItem('sr2_bt_strat', JSON.stringify(btStrategy)); }
 let snoozed       = {};
 let alarmActive   = false;
@@ -2646,53 +2676,63 @@ async function backtestStrategy(tickers, market, onProgress) {
 }
 
 function profitabilityGate(ticker, market) {
-  const rec = btCache?.[market]?.[ticker];
-  if (!rec) return { has: false, pass: false, note: 'BT없음', rec: null };
+  const rec = getBtRec(market, ticker);
+  if (!rec) return { has: false, pass: false, note: 'BT없음/만료', rec: null };
 
-  // Prefer OOS (test) metrics — the real truth. Fall back to full if OOS too small.
-  const tm  = rec.testMetrics;   // out-of-sample
-  const fm  = rec.metrics;       // full (in-sample)
-  const m   = (tm && tm.n >= 15) ? tm : fm;  // use OOS only if ≥15 trades (statistically meaningful)
-  const isOOS = (tm && tm.n >= 15);
-  // Small-sample warning: OOS exists but too few trades
-  const oosSmallSample = tm && tm.n > 0 && tm.n < 15;
+  // Prefer OOS (test) metrics. Fall back to full if OOS sample is too small.
+  const tm  = rec.testMetrics; // out-of-sample
+  const fm  = rec.metrics;     // full
+  const oosMin = (RULES.oosMinTrades || 20);
+  const useOOS = !!(tm && tm.n >= oosMin);
+  const mtr = useOOS ? tm : fm;
+  const isOOS = useOOS;
 
-  if (!m) return { has: false, pass: false, note: 'BT없음', rec: null };
+  const oosSmallSample = !!(tm && tm.n > 0 && tm.n < oosMin);
+  if (!mtr) return { has: false, pass: false, note: 'BT없음', rec: null };
 
-  // ── STRICT GATE (requirement 3: winRate > 0.55 AND expectancy > 0) ────
-  // Also check strategy-level stats if available (extra confidence layer)
-  const strat = btStrategy?.[market];
+  // Strategy-level stats (extra confidence layer, TTL protected)
+  const strat = getStratRec(market);
   const sm    = strat?.testMetrics || strat?.metrics;
 
-  // ── Walk-forward consistency gate (Module 3 integration) ────────────────
+  // Walk-forward consistency gate (if present)
   const wf = rec.wfReport;
-  const wfPassRatio  = wf ? wf.passRatio : 1;           // default pass if no WF data
-  const wfConsistent = !wf || wf.passRatio >= 0.60;      // at least 60% of windows profitable
-  const wfGoodConsistency = !wf || wf.consistency >= 0.3; // avg/std > 0.3
+  const wfMinW = (RULES.wfMinWindows || 5);
+  const wfPRMin = (RULES.wfPassRatioMin || 0.70);
+  const wfCMin = (RULES.wfConsistencyMin || 0.30);
 
-  const passOOS      = isOOS;                          // bonus: real OOS data
-  const passN        = rec.n >= 15;                    // enough trades
-  const passExpect   = m.expectancy > 0;               // positive expected value
-  const passWinRate  = m.winRate >= 0.52;              // win rate ≥ 52%
-  const passDD       = m.maxDrawdown > -0.30;          // drawdown within -30%
-  const passStrategy = !sm || (sm.expectancy > 0 && sm.winRate >= 0.50); // strategy OK
-  const passWF       = wfConsistent && wfGoodConsistency; // walk-forward gate
+  const wfWindowsOK = !wf || (wf.nWindows ?? 0) >= wfMinW;
+  const wfPassRatioOK = !wf || (wf.passRatio ?? 1) >= wfPRMin;
+  const wfConsistencyOK = !wf || (wf.consistency ?? 999) >= wfCMin;
+  const passWF = wfWindowsOK && wfPassRatioOK && wfConsistencyOK;
+
+  // Core gates
+  const btMin = (RULES.btMinTrades || 20);
+  const passN        = (rec.n ?? 0) >= btMin;
+  const passExpect   = (mtr.expectancy ?? 0) > (RULES.btExpectMin ?? 0);
+  const passWinRate  = (mtr.winRate ?? 0) >= (RULES.btWinRateMin || 0.52);
+  const passDD       = (mtr.maxDrawdown ?? -1) > (RULES.btMaxDDMin ?? -0.30);
+  const passStrategy = !sm || ((sm.expectancy ?? 0) > (RULES.btExpectMin ?? 0) && (sm.winRate ?? 0) >= Math.max(0.50, (RULES.btWinRateMin || 0.52) - 0.02));
 
   const pass = passN && passExpect && passWinRate && passDD && passStrategy && passWF;
 
   const oosTag = isOOS ? `OOS✓(${tm.n}건)` : oosSmallSample ? `OOS△(${tm.n}건·표본부족)` : `IS(${rec.n}건)`;
-  const note = `${oosTag} E:${(m.expectancy*100).toFixed(1)}% W:${(m.winRate*100).toFixed(0)}% DD:${(m.maxDrawdown*100).toFixed(0)}%`;
+  const note = `${oosTag} E:${((mtr.expectancy||0)*100).toFixed(1)}% W:${((mtr.winRate||0)*100).toFixed(0)}% DD:${((mtr.maxDrawdown||0)*100).toFixed(0)}%`;
 
   const failReasons = [];
-  if (!passN)        failReasons.push(`거래수 부족(${rec.n})`);
-  if (!passExpect)   failReasons.push(`기대값≤0`);
-  if (!passWinRate)  failReasons.push(`승률<52%`);
-  if (!passDD)       failReasons.push(`낙폭>30%`);
+  if (!passN)        failReasons.push(`거래수 부족(${rec.n}<${btMin})`);
+  if (!passExpect)   failReasons.push(`기대값≤${(RULES.btExpectMin??0)}`);
+  if (!passWinRate)  failReasons.push(`승률<${Math.round((RULES.btWinRateMin||0.52)*100)}%`);
+  if (!passDD)       failReasons.push(`낙폭>${Math.round(Math.abs(RULES.btMaxDDMin||-0.30)*100)}%`);
   if (!passStrategy) failReasons.push(`전략전체 부진`);
-  if (!passWF)       failReasons.push(`WF비일관(${wf ? (wf.passRatio*100).toFixed(0) : '?'}%통과)`);
-  if (oosSmallSample) failReasons.push(`OOS표본부족(${tm.n}<15건)`);
+  if (!passWF) {
+    const pr = wf ? (wf.passRatio*100).toFixed(0) : '?';
+    const cs = wf ? (wf.consistency).toFixed(2) : '?';
+    const nw = wf ? (wf.nWindows ?? 0) : 0;
+    failReasons.push(`WF미통과(${nw}윈도·${pr}%·C${cs})`);
+  }
+  if (oosSmallSample) failReasons.push(`OOS표본부족(${tm.n}<${oosMin})`);
 
-  return { has: true, pass, note, failReasons, rec, m, tm, isOOS, oosSmallSample };
+  return { has: true, pass, note, rec, m: mtr, isOOS, failReasons };
 }
 
 // ── Strategy-level gate (portfolio-wide sanity check) ────────────────────
