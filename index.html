@@ -3211,22 +3211,22 @@ function buildCard(d, market) {
             color:${edge.probSource.startsWith('실측') ? 'var(--green)' : 'var(--amber)'}">
             ${edge.probSource.startsWith('실측') ? '✓ ' : '~'} ${edge.probSource}</span>` : '';
 
-      return \`<div class="edge-panel">
+      return `<div class="edge-panel">
         <div class="edge-top">
           <div class="edge-left">
-            <div class="edge-prob \${probCls}">\${edge.prob}%\${srcBadge}</div>
+            <div class="edge-prob ${probCls}">${edge.prob}%${srcBadge}</div>
             <div class="edge-sub">예측 승률</div>
-            <span class="edge-conf \${edge.conf}">\${confLbl}</span>
+            <span class="edge-conf ${edge.conf}">${confLbl}</span>
           </div>
           <div class="edge-right">
-            <div class="edge-er \${edge.expectedReturn >= 0 ? 'pos' : 'neg'}">\${erSign}\${erPct}% 기대수익</div>
-            <div class="edge-rr \${rrCls}">R/R = 1 : \${edge.rr.toFixed(1)}</div>
-            <div style="font-size:9px;color:var(--dim2);margin-top:3px">점수 \${score}pt · \${{ bull:'📈강세장', neutral:'➡️횡보장', bear:'📉약세장', loading:'--' }[edge.regime]||'--'}</div>
+            <div class="edge-er ${edge.expectedReturn >= 0 ? 'pos' : 'neg'}">${erSign}${erPct}% 기대수익</div>
+            <div class="edge-rr ${rrCls}">R/R = 1 : ${edge.rr.toFixed(1)}</div>
+            <div style="font-size:9px;color:var(--dim2);margin-top:3px">점수 ${score}pt · ${{ bull:'📈강세장', neutral:'➡️횡보장', bear:'📉약세장', loading:'--' }[edge.regime]||'--'}</div>
           </div>
         </div>
-        \${setupHtml}
-        \${filterHtml}
-      </div>\`;
+        ${setupHtml}
+        ${filterHtml}
+      </div>`;
     })() : `<div class="score-bar-wrap">
       <div class="score-row">
         <span class="score-label">종합점수</span>
@@ -3933,8 +3933,8 @@ function renderLog() {
     // Calibration status
     const calibrated = withOutcome.length >= 10;
     const calibStatus = calibrated
-      ? \`<span style="color:var(--green);font-size:9px">✓ 실데이터로 승률 보정 중 (\${withOutcome.length}건)</span>\`
-      : \`<span style="color:var(--amber);font-size:9px">⚠ 승률 보정 대기 중 (\${withOutcome.length}/10건 필요)</span>\`;
+      ? `<span style="color:var(--green);font-size:9px">✓ 실데이터로 승률 보정 중 (${withOutcome.length}건)</span>`
+      : `<span style="color:var(--amber);font-size:9px">⚠ 승률 보정 대기 중 (${withOutcome.length}/10건 필요)</span>`;
 
     // Expected value (actual)
     const actualEV = withOutcome.length > 0
@@ -3944,31 +3944,31 @@ function renderLog() {
     const calibPct = Math.min(100, Math.round((withOutcome.length / 10) * 100));
     const calibBarClass = calibrated ? 'done' : 'partial';
 
-    sumEl.innerHTML = \`<div class="calib-bar-wrap">
+    sumEl.innerHTML = `<div class="calib-bar-wrap">
       <div class="calib-bar-row">
         <span>📊 승률 보정 진행도</span>
-        <span>\${withOutcome.length}/10건 \${calibrated ? '✓ 실데이터 보정 활성화' : '— 10건 달성 시 자동 보정 시작'}</span>
+        <span>${withOutcome.length}/10건 ${calibrated ? '✓ 실데이터 보정 활성화' : '— 10건 달성 시 자동 보정 시작'}</span>
       </div>
-      <div class="calib-track"><div class="calib-fill \${calibBarClass}" style="width:\${calibPct}%"></div></div>
+      <div class="calib-track"><div class="calib-fill ${calibBarClass}" style="width:${calibPct}%"></div></div>
     </div>
     <div class="log-summary">
       <div class="log-sum-card">
-        <div class="log-sum-val">\${total}</div>
-        <div class="log-sum-lbl">총 신호 / \${withOutcome.length}건 결과</div>
+        <div class="log-sum-val">${total}</div>
+        <div class="log-sum-lbl">총 신호 / ${withOutcome.length}건 결과</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:\${winRate==null?'var(--dim2)':winRate>=55?'var(--green)':winRate>=45?'var(--amber)':'var(--red)'}">\${winRate != null ? winRate + '%' : '--'}</div>
-        <div class="log-sum-lbl">실현 승률 (\${wins}승 \${losses}패)</div>
+        <div class="log-sum-val" style="color:${winRate==null?'var(--dim2)':winRate>=55?'var(--green)':winRate>=45?'var(--amber)':'var(--red)'}">${winRate != null ? winRate + '%' : '--'}</div>
+        <div class="log-sum-lbl">실현 승률 (${wins}승 ${losses}패)</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:\${avgReturn==null?'var(--dim2)':parseFloat(avgReturn)>=0?'var(--green)':'var(--red)'}">\${avgReturn != null ? (parseFloat(avgReturn)>=0?'+':'') + avgReturn + '%' : '--'}</div>
+        <div class="log-sum-val" style="color:${avgReturn==null?'var(--dim2)':parseFloat(avgReturn)>=0?'var(--green)':'var(--red)'}">${avgReturn != null ? (parseFloat(avgReturn)>=0?'+':'') + avgReturn + '%' : '--'}</div>
         <div class="log-sum-lbl">평균 수익률</div>
       </div>
       <div class="log-sum-card">
-        <div class="log-sum-val" style="color:var(--green)">\${avgWinAmt != null ? '+' + avgWinAmt + '%' : '--'}</div>
-        <div class="log-sum-lbl">평균 수익 / <span style="color:var(--red)">\${avgLossAmt != null ? avgLossAmt + '%' : '--'}</span> 손실</div>
+        <div class="log-sum-val" style="color:var(--green)">${avgWinAmt != null ? '+' + avgWinAmt + '%' : '--'}</div>
+        <div class="log-sum-lbl">평균 수익 / <span style="color:var(--red)">${avgLossAmt != null ? avgLossAmt + '%' : '--'}</span> 손실</div>
       </div>
-    </div>\`;
+    </div>`;
   }
 
   if (!sigs.length && !alarms.length) {
